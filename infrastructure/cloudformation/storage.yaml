@@ -1,0 +1,32 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: NYC Taxi Data Lake
+
+Resources:
+
+  BronzeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub nyc-taxi-bronze-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+
+  SilverBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub nyc-taxi-silver-${AWS::AccountId}
+
+  GoldBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub nyc-taxi-gold-${AWS::AccountId}
+
+Outputs:
+
+  BronzeBucket:
+    Value: !Ref BronzeBucket
+
+  SilverBucket:
+    Value: !Ref SilverBucket
+
+  GoldBucket:
+    Value: !Ref GoldBucket
