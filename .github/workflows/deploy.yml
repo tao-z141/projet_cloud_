@@ -1,0 +1,56 @@
+name: Deploy NYC Taxi Platform
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      - name: Deploy Networking
+        run: |
+          aws cloudformation deploy \
+            --stack-name nyc-network \
+            --template-file infrastructure/cloudformation/networking.yaml \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Deploy Storage
+        run: |
+          aws cloudformation deploy \
+            --stack-name nyc-storage \
+            --template-file infrastructure/cloudformation/storage.yaml
+
+      - name: Deploy Databases
+        run: |
+          aws cloudformation deploy \
+            --stack-name nyc-db \
+            --template-file infrastructure/cloudformation/databases.yaml \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Deploy Kafka
+        run: |
+          aws cloudformation deploy \
+            --stack-name nyc-kafka \
+            --template-file infrastructure/cloudformation/kafka.yaml \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Deploy API
+        run: |
+          aws cloudformation deploy \
+            --stack-name nyc-api \
+            --template-file infrastructure/cloudformation/api.yaml \
+            --capabilities CAPABILITY_NAMED_IAM
