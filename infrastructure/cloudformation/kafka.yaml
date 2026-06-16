@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Kafka EC2
+Description: Kafka EC2 (Free Tier)
 
 Parameters:
 
@@ -11,7 +11,7 @@ Resources:
   KafkaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Kafka SG
+      GroupDescription: Kafka access
       VpcId:
         Fn::ImportValue: MainVPC
 
@@ -32,7 +32,8 @@ Resources:
     Properties:
 
       InstanceType: t3.micro
-      ImageId: ami-0f7cd40eac2214b37
+
+      ImageId: ami-0f7cd40eac2214b37   # Amazon Linux eu-west-3 (à vérifier plus tard)
 
       KeyName: !Ref KeyPairName
 
@@ -44,6 +45,12 @@ Resources:
           #!/bin/bash
           yum update -y
           yum install java-17-amazon-corretto -y
+
+          wget https://downloads.apache.org/kafka/3.6.0/kafka_2.13-3.6.0.tgz
+          tar -xzf kafka_2.13-3.6.0.tgz
+          mv kafka_2.13-3.6.0 /opt/kafka
+
+          echo "Kafka installed"
 
 Outputs:
 
