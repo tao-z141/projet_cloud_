@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Kafka EC2
+
+Parameters:
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+
+Resources:
+
+  KafkaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Kafka SG
+      VpcId:
+        Fn::ImportValue: MainVPC
+
+      SecurityGroupIngress:
+
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+        - IpProtocol: tcp
+          FromPort: 9092
+          ToPort: 9092
+          CidrIp: 0.0.0.0/0
+
+  KafkaInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+
+      InstanceType: t3.micro
+      ImageId: ami-0f7cd40eac2214b37
+
+      KeyName: !Ref KeyPairName
+
+      SecurityGroupIds:
+        - !Ref KafkaSecurityGroup
+
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          yum install java-17-amazon-corretto -y
+
+Outputs:
+
+  KafkaPublicIP:
+    Value: !GetAtt KafkaInstance.PublicIp
