@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: NYC Taxi Data Lake
+Description: S3 Data Lake (Bronze/Silver/Gold)
 
 Resources:
 
@@ -24,9 +24,15 @@ Outputs:
 
   BronzeBucket:
     Value: !Ref BronzeBucket
+    Export:
+      Name: BronzeBucketName
 
   SilverBucket:
     Value: !Ref SilverBucket
+    Export:
+      Name: SilverBucketName
 
   GoldBucket:
     Value: !Ref GoldBucket
+    Export:
+      Name: GoldBucketName
