@@ -1,8 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: NYC Taxi Databases
+Description: Databases layer (RDS + DynamoDB)
 
 Resources:
 
+  # ======================
+  # DynamoDB (Realtime events)
+  # ======================
   RealtimeEventsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -17,22 +20,46 @@ Resources:
         - AttributeName: event_id
           KeyType: HASH
 
+  # ======================
+  # Security Group RDS
+  # ======================
   RDSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: PostgreSQL access
+      GroupDescription: Allow PostgreSQL access
       VpcId:
         Fn::ImportValue: MainVPC
 
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+
+  # ======================
+  # RDS PostgreSQL (Free Tier safe)
+  # ======================
   TaxiPostgres:
     Type: AWS::RDS::DBInstance
     Properties:
-      DBInstanceIdentifier: nyc-taxi-postgres
+      DBInstanceIdentifier: nyc-taxi-db
       Engine: postgres
-      MasterUsername: postgres
-      MasterUserPassword: Password123!
       DBInstanceClass: db.t3.micro
       AllocatedStorage: 20
+      StorageType: gp2
+
+      MasterUsername: postgres
+      MasterUserPassword: Password12345!
+
       PubliclyAccessible: true
+
       VPCSecurityGroups:
         - !Ref RDSSecurityGroup
+
+Outputs:
+
+  RDSAddress:
+    Value: !GetAtt TaxiPostgres.Endpoint.Address
+
+  DynamoTable:
+    Value: !Ref RealtimeEventsTable
