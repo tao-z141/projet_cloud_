@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: NYC Taxi Databases
+
+Resources:
+
+  RealtimeEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: realtime_events
+      BillingMode: PAY_PER_REQUEST
+
+      AttributeDefinitions:
+        - AttributeName: event_id
+          AttributeType: S
+
+      KeySchema:
+        - AttributeName: event_id
+          KeyType: HASH
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: PostgreSQL access
+      VpcId:
+        Fn::ImportValue: MainVPC
+
+  TaxiPostgres:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: nyc-taxi-postgres
+      Engine: postgres
+      MasterUsername: postgres
+      MasterUserPassword: Password123!
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      PubliclyAccessible: true
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
