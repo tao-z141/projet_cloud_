@@ -1,35 +1,50 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: NYC Taxi Platform Networking
+Description: Networking layer for NYC Taxi Data Platform (Free Tier - eu-west-3)
 
 Resources:
 
+  # =========================
+  # VPC
+  # =========================
   MainVPC:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.0.0.0/16
-      EnableDnsHostnames: true
       EnableDnsSupport: true
+      EnableDnsHostnames: true
       Tags:
         - Key: Name
           Value: nyc-taxi-vpc
 
+  # =========================
+  # Public Subnet
+  # =========================
   PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref MainVPC
-      AvailabilityZone: eu-west-3a
       CidrBlock: 10.0.1.0/24
+      AvailabilityZone: eu-west-3a
       MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: nyc-public-subnet
 
+  # =========================
+  # Internet Gateway
+  # =========================
   InternetGateway:
     Type: AWS::EC2::InternetGateway
 
   AttachGateway:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      InternetGatewayId: !Ref InternetGateway
       VpcId: !Ref MainVPC
+      InternetGatewayId: !Ref InternetGateway
 
+  # =========================
+  # Route Table
+  # =========================
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -40,19 +55,28 @@ Resources:
     DependsOn: AttachGateway
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      GatewayId: !Ref InternetGateway
       DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
 
-  RouteAssociation:
+  PublicSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
 
+# =========================
+# OUTPUTS (IMPORTANT pour ImportValue)
+# =========================
 Outputs:
 
   VPCId:
+    Description: VPC ID
     Value: !Ref MainVPC
+    Export:
+      Name: MainVPC
 
-  SubnetId:
+  PublicSubnetId:
+    Description: Public Subnet ID
     Value: !Ref PublicSubnet
+    Export:
+      Name: PublicSubnetId
