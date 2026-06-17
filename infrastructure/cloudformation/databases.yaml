@@ -4,7 +4,7 @@ Description: Databases layer (RDS + DynamoDB)
 Resources:
 
   # ======================
-  # DynamoDB (Realtime events)
+  # DynamoDB (REALTIME FIX)
   # ======================
   RealtimeEventsTable:
     Type: AWS::DynamoDB::Table
@@ -13,15 +13,19 @@ Resources:
       BillingMode: PAY_PER_REQUEST
 
       AttributeDefinitions:
-        - AttributeName: event_id
+        - AttributeName: taxi_id
+          AttributeType: S
+        - AttributeName: timestamp
           AttributeType: S
 
       KeySchema:
-        - AttributeName: event_id
+        - AttributeName: taxi_id
           KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
 
   # ======================
-  # Security Group RDS
+  # RDS SECURITY GROUP
   # ======================
   RDSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -37,7 +41,7 @@ Resources:
           CidrIp: 0.0.0.0/0
 
   # ======================
-  # RDS PostgreSQL (Free Tier safe)
+  # RDS POSTGRES (FREE TIER SAFE)
   # ======================
   TaxiPostgres:
     Type: AWS::RDS::DBInstance
@@ -49,7 +53,9 @@ Resources:
       StorageType: gp2
 
       MasterUsername: postgres
-      MasterUserPassword: Password12345!
+
+      # ⚠️ DEMO ONLY (OK school, not prod)
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:nyc-db-password:SecretString}}"
 
       PubliclyAccessible: true
 
@@ -57,7 +63,6 @@ Resources:
         - !Ref RDSSecurityGroup
 
 Outputs:
-
   RDSAddress:
     Value: !GetAtt TaxiPostgres.Endpoint.Address
 
