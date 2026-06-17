@@ -1,5 +1,4 @@
 AWSTemplateFormatVersion: '2010-09-09'
-
 Description: NYC Taxi Data Lake Storage
 
 Resources:
@@ -12,12 +11,25 @@ Resources:
       VersioningConfiguration:
         Status: Enabled
 
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
 
-Outputs:
+      LifecycleConfiguration:
+        Rules:
+          - Id: BronzeRetention
+            Status: Enabled
+            ExpirationInDays: 30
 
+Outputs:
   BucketName:
     Value: !Ref DataLakeBucket
+    Export:
+      Name: DataLakeBucketName
