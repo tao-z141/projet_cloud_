@@ -1,7 +1,7 @@
 name: Setup Glue Jobs
 
 on:
-  workflow_dispatch:  # Lancement manuel
+  workflow_dispatch:
 
 jobs:
   setup-glue:
@@ -19,112 +19,106 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-west-3
 
-      # ================================
-      # 1. Upload scripts vers S3
-      # ================================
       - name: Upload Glue scripts to S3
         run: |
           aws s3 cp glue_jobs/bronze_to_silver.py s3://nyc-taxi-platform/scripts/bronze_to_silver.py
           aws s3 cp glue_jobs/silver_to_gold.py s3://nyc-taxi-platform/scripts/silver_to_gold.py
+          aws s3 cp glue_jobs/gold_to_rds.py s3://nyc-taxi-platform/scripts/gold_to_rds.py
           echo "Scripts uploaded"
 
-      # ================================
-      # 2. Créer le job bronze_to_silver
-      # ================================
-      - name: Create or update bronze_to_silver Glue job
+      - name: Create or update bronze_to_silver
         run: |
-          # Vérifie si le job existe déjà
+          JOB_DEF='{
+            "Role": "nyc-taxi-glue-role",
+            "Command": {
+              "Name": "glueetl",
+              "ScriptLocation": "s3://nyc-taxi-platform/scripts/bronze_to_silver.py",
+              "PythonVersion": "3"
+            },
+            "DefaultArguments": {
+              "--job-language": "python",
+              "--TempDir": "s3://nyc-taxi-platform/tmp/",
+              "--enable-metrics": "true"
+            },
+            "GlueVersion": "4.0",
+            "NumberOfWorkers": 2,
+            "WorkerType": "G.1X",
+            "Timeout": 60
+          }'
           if aws glue get-job --job-name bronze_to_silver 2>/dev/null; then
-            echo "Job exists, updating..."
-            aws glue update-job \
-              --job-name bronze_to_silver \
-              --job-update '{
-                "Role": "nyc-taxi-glue-role",
-                "Command": {
-                  "Name": "glueetl",
-                  "ScriptLocation": "s3://nyc-taxi-platform/scripts/bronze_to_silver.py",
-                  "PythonVersion": "3"
-                },
-                "DefaultArguments": {
-                  "--job-language": "python",
-                  "--TempDir": "s3://nyc-taxi-platform/tmp/",
-                  "--enable-metrics": "true"
-                },
-                "GlueVersion": "4.0",
-                "NumberOfWorkers": 2,
-                "WorkerType": "G.1X",
-                "Timeout": 60
-              }'
+            aws glue update-job --job-name bronze_to_silver --job-update "$JOB_DEF"
           else
-            echo "Creating job..."
-            aws glue create-job \
-              --name bronze_to_silver \
+            aws glue create-job --name bronze_to_silver \
               --role nyc-taxi-glue-role \
-              --command '{
-                "Name": "glueetl",
-                "ScriptLocation": "s3://nyc-taxi-platform/scripts/bronze_to_silver.py",
-                "PythonVersion": "3"
-              }' \
-              --default-arguments '{
-                "--job-language": "python",
-                "--TempDir": "s3://nyc-taxi-platform/tmp/",
-                "--enable-metrics": "true"
-              }' \
-              --glue-version "4.0" \
-              --number-of-workers 2 \
-              --worker-type "G.1X" \
-              --timeout 60
+              --command '{"Name":"glueetl","ScriptLocation":"s3://nyc-taxi-platform/scripts/bronze_to_silver.py","PythonVersion":"3"}' \
+              --default-arguments '{"--job-language":"python","--TempDir":"s3://nyc-taxi-platform/tmp/","--enable-metrics":"true"}' \
+              --glue-version "4.0" --number-of-workers 2 --worker-type "G.1X" --timeout 60
           fi
 
-      # ================================
-      # 3. Créer le job silver_to_gold
-      # ================================
-      - name: Create or update silver_to_gold Glue job
+      - name: Create or update silver_to_gold
         run: |
           if aws glue get-job --job-name silver_to_gold 2>/dev/null; then
-            echo "Job exists, updating..."
-            aws glue update-job \
-              --job-name silver_to_gold \
-              --job-update '{
-                "Role": "nyc-taxi-glue-role",
-                "Command": {
-                  "Name": "glueetl",
-                  "ScriptLocation": "s3://nyc-taxi-platform/scripts/silver_to_gold.py",
-                  "PythonVersion": "3"
-                },
-                "DefaultArguments": {
-                  "--job-language": "python",
-                  "--TempDir": "s3://nyc-taxi-platform/tmp/",
-                  "--enable-metrics": "true"
-                },
-                "GlueVersion": "4.0",
-                "NumberOfWorkers": 2,
-                "WorkerType": "G.1X",
-                "Timeout": 60
-              }'
-          else
-            echo "Creating job..."
-            aws glue create-job \
-              --name silver_to_gold \
-              --role nyc-taxi-glue-role \
-              --command '{
+            aws glue update-job --job-name silver_to_gold --job-update '{
+              "Role": "nyc-taxi-glue-role",
+              "Command": {
                 "Name": "glueetl",
                 "ScriptLocation": "s3://nyc-taxi-platform/scripts/silver_to_gold.py",
                 "PythonVersion": "3"
-              }' \
-              --default-arguments '{
+              },
+              "DefaultArguments": {
                 "--job-language": "python",
                 "--TempDir": "s3://nyc-taxi-platform/tmp/",
                 "--enable-metrics": "true"
-              }' \
-              --glue-version "4.0" \
-              --number-of-workers 2 \
-              --worker-type "G.1X" \
-              --timeout 60
+              },
+              "GlueVersion": "4.0",
+              "NumberOfWorkers": 2,
+              "WorkerType": "G.1X",
+              "Timeout": 60
+            }'
+          else
+            aws glue create-job --name silver_to_gold \
+              --role nyc-taxi-glue-role \
+              --command '{"Name":"glueetl","ScriptLocation":"s3://nyc-taxi-platform/scripts/silver_to_gold.py","PythonVersion":"3"}' \
+              --default-arguments '{"--job-language":"python","--TempDir":"s3://nyc-taxi-platform/tmp/","--enable-metrics":"true"}' \
+              --glue-version "4.0" --number-of-workers 2 --worker-type "G.1X" --timeout 60
           fi
+
+      - name: Create or update gold_to_rds
+        run: |
+          if aws glue get-job --job-name gold_to_rds 2>/dev/null; then
+            aws glue update-job --job-name gold_to_rds --job-update '{
+              "Role": "nyc-taxi-glue-role",
+              "Command": {
+                "Name": "glueetl",
+                "ScriptLocation": "s3://nyc-taxi-platform/scripts/gold_to_rds.py",
+                "PythonVersion": "3"
+              },
+              "DefaultArguments": {
+                "--job-language": "python",
+                "--TempDir": "s3://nyc-taxi-platform/tmp/",
+                "--enable-metrics": "true",
+                "--extra-jars": "s3://nyc-taxi-platform/scripts/postgresql-42.7.3.jar"
+              },
+              "GlueVersion": "4.0",
+              "NumberOfWorkers": 2,
+              "WorkerType": "G.1X",
+              "Timeout": 60
+            }'
+          else
+            aws glue create-job --name gold_to_rds \
+              --role nyc-taxi-glue-role \
+              --command '{"Name":"glueetl","ScriptLocation":"s3://nyc-taxi-platform/scripts/gold_to_rds.py","PythonVersion":"3"}' \
+              --default-arguments '{"--job-language":"python","--TempDir":"s3://nyc-taxi-platform/tmp/","--enable-metrics":"true","--extra-jars":"s3://nyc-taxi-platform/scripts/postgresql-42.7.3.jar"}' \
+              --glue-version "4.0" --number-of-workers 2 --worker-type "G.1X" --timeout 60
+          fi
+
+      - name: Download PostgreSQL JDBC driver and upload to S3
+        run: |
+          wget -q https://jdbc.postgresql.org/download/postgresql-42.7.3.jar
+          aws s3 cp postgresql-42.7.3.jar s3://nyc-taxi-platform/scripts/postgresql-42.7.3.jar
+          echo "JDBC driver uploaded"
 
       - name: Done
         run: |
-          echo "Glue jobs created:"
-          aws glue get-job --job-name bronze_to_silver --query 'Job.Name'
-          aws glue get-job --job-name silver_to_gold --query 'Job.Name'
+          echo "All Glue jobs created:"
+          aws glue list-jobs --query 'JobNames'
