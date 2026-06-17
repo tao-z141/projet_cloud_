@@ -4,7 +4,7 @@ Description: Databases layer (RDS PostgreSQL + DynamoDB) — Free Tier optimized
 Resources:
 
   # ======================
-  # DynamoDB — 100% gratuit (pay-per-request, free tier illimité)
+  # DynamoDB — 100% gratuit
   # ======================
   RealtimeEventsTable:
     Type: AWS::DynamoDB::Table
@@ -35,47 +35,51 @@ Resources:
           Value: nyc-taxi-platform
 
   # ======================
-  # SECURITY GROUP RDS — accès VPC uniquement
-  # ======================
-  RDSSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow PostgreSQL access from within VPC only
-      VpcId:
-        Fn::ImportValue: MainVPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          CidrIp: 10.0.0.0/16   # VPC interne uniquement
-
-  # ======================
-  # SUBNET GROUP — requis pour RDS en VPC (RDS exige 2 AZ minimum)
+  # SUBNET PRIVÉ 2 (AZ-b) — requis pour DBSubnetGroup (2 AZ minimum)
   # ======================
   PrivateSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId:
-        Fn::ImportValue: MainVPC
+      VpcId: !ImportValue MainVPC
       CidrBlock: 10.0.2.0/24
       AvailabilityZone: eu-west-3b
       Tags:
         - Key: Name
           Value: nyc-private-subnet-2
 
+  # ======================
+  # SUBNET GROUP RDS — 2 subnets dans le MÊME VPC (MainVPC)
+  # ======================
   RDSSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
       DBSubnetGroupDescription: Subnet group for NYC Taxi RDS
       SubnetIds:
-        - Fn::ImportValue: PublicSubnetId
+        - !ImportValue PublicSubnetId
         - !Ref PrivateSubnet2
       Tags:
         - Key: Name
           Value: nyc-rds-subnet-group
 
   # ======================
-  # SECRETS MANAGER — ~0.40$/mois (très faible)
+  # SECURITY GROUP RDS — MÊME VPC que le SubnetGroup
+  # ======================
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access from within VPC only
+      VpcId: !ImportValue MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: nyc-rds-sg
+
+  # ======================
+  # SECRETS MANAGER
   # ======================
   DBPasswordSecret:
     Type: AWS::SecretsManager::Secret
@@ -90,28 +94,23 @@ Resources:
 
   # ======================
   # RDS POSTGRES — FREE TIER
-  # ✅ db.t3.micro = 750h/mois gratuites (1ère année)
-  # ✅ 20 Go gp2 inclus
-  # ✅ StorageEncrypted: false (le chiffrement n'est PAS dispo sur t3.micro free tier)
-  # ✅ BackupRetentionPeriod: 1 (minimum pour rester dans les 20Go de backup gratuits)
-  # ✅ MultiAZ: false (Multi-AZ est payant)
-  # ⚠️  À ÉTEINDRE entre les sessions pour ne pas dépasser 750h/mois
   # ======================
   TaxiPostgres:
     Type: AWS::RDS::DBInstance
-    DependsOn: DBPasswordSecret
+    DependsOn:
+      - RDSSubnetGroup
+      - RDSSecurityGroup
+      - DBPasswordSecret
     Properties:
       DBInstanceIdentifier: nyc-taxi-db
       Engine: postgres
-      # Ne pas figer la version mineure pour éviter les erreurs de dispo en eu-west-3
       EngineVersion: "15"
-      DBInstanceClass: db.t3.micro   # ✅ Free tier
-      AllocatedStorage: 20           # ✅ Free tier (max 20 Go inclus)
-      StorageType: gp2               # ✅ Free tier
-      StorageEncrypted: false        # ✅ Non dispo sur t3.micro — ne pas activer
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      StorageType: gp2
+      StorageEncrypted: false
 
       DBName: taxidb
-
       MasterUsername: postgres
       MasterUserPassword:
         Fn::Sub: "{{resolve:secretsmanager:${DBPasswordSecret}::password}}"
@@ -120,10 +119,10 @@ Resources:
       VPCSecurityGroups:
         - !Ref RDSSecurityGroup
 
-      PubliclyAccessible: false      # ✅ Sécurité — accès Lambda/Glue dans le VPC
-      BackupRetentionPeriod: 1       # ✅ Minimum (7 jours consomment du stockage)
-      MultiAZ: false                 # ✅ Free tier — pas de Multi-AZ
-      DeletionProtection: false      # ✅ Facilite le nettoyage en fin de projet
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 1
+      MultiAZ: false
+      DeletionProtection: false
 
       Tags:
         - Key: Project
