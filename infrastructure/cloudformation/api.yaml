@@ -1,13 +1,187 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: API Gateway (NYC Taxi Platform)
+Description: API Gateway + Lambda (NYC Taxi Platform)
 
 Resources:
 
+  # =========================
+  # IAM ROLE LAMBDA
+  # =========================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: nyc-taxi-lambda-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess
+
+  # =========================
+  # LAMBDA — GET /trips
+  # =========================
+  LambdaGetTrips:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nyc-get-trips
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET: nyc-taxi-platform
+          GOLD_PREFIX: gold/kpi_daily/
+      Code:
+        ZipFile: |
+          import json, boto3, io
+          import pandas as pd
+          import os
+
+          s3 = boto3.client("s3")
+          BUCKET = os.environ["BUCKET"]
+          GOLD_PREFIX = os.environ["GOLD_PREFIX"]
+
+          def lambda_handler(event, context):
+              try:
+                  paginator = s3.get_paginator("list_objects_v2")
+                  pages = paginator.paginate(Bucket=BUCKET, Prefix=GOLD_PREFIX)
+                  dfs = []
+                  for page in pages:
+                      for obj in page.get("Contents", []):
+                          if obj["Key"].endswith(".parquet"):
+                              r = s3.get_object(Bucket=BUCKET, Key=obj["Key"])
+                              dfs.append(pd.read_parquet(io.BytesIO(r["Body"].read())))
+                  if not dfs:
+                      return {"statusCode": 404, "body": json.dumps({"error": "No data"})}
+                  df = pd.concat(dfs, ignore_index=True)
+                  params = event.get("queryStringParameters") or {}
+                  if "date_from" in params:
+                      df = df[df["day"] >= params["date_from"]]
+                  if "date_to" in params:
+                      df = df[df["day"] <= params["date_to"]]
+                  return {
+                      "statusCode": 200,
+                      "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+                      "body": json.dumps({
+                          "total_trips": int(df["nb_trips"].sum()),
+                          "avg_fare_usd": round(float(df["avg_fare_usd"].mean()), 2),
+                          "avg_distance_km": round(float(df["avg_distance_km"].mean()), 2),
+                          "total_revenue_usd": round(float(df["total_revenue_usd"].sum()), 2),
+                          "days_count": len(df)
+                      })
+                  }
+              except Exception as e:
+                  return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+
+  # =========================
+  # LAMBDA — GET /weather
+  # =========================
+  LambdaGetWeather:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nyc-get-weather
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET: nyc-taxi-platform
+          SILVER_PREFIX: silver/weather_clean/
+      Code:
+        ZipFile: |
+          import json, boto3, io
+          import pandas as pd
+          import os
+
+          s3 = boto3.client("s3")
+          BUCKET = os.environ["BUCKET"]
+          SILVER_PREFIX = os.environ["SILVER_PREFIX"]
+
+          def lambda_handler(event, context):
+              try:
+                  paginator = s3.get_paginator("list_objects_v2")
+                  pages = paginator.paginate(Bucket=BUCKET, Prefix=SILVER_PREFIX)
+                  dfs = []
+                  for page in pages:
+                      for obj in page.get("Contents", []):
+                          if obj["Key"].endswith(".parquet"):
+                              r = s3.get_object(Bucket=BUCKET, Key=obj["Key"])
+                              dfs.append(pd.read_parquet(io.BytesIO(r["Body"].read())))
+                  if not dfs:
+                      return {"statusCode": 404, "body": json.dumps({"error": "No data"})}
+                  df = pd.concat(dfs, ignore_index=True)
+                  result = {"records_count": len(df)}
+                  if "temperature_2m" in df.columns:
+                      result["avg_temperature_c"] = round(float(df["temperature_2m"].mean()), 2)
+                      result["min_temperature_c"] = round(float(df["temperature_2m"].min()), 2)
+                      result["max_temperature_c"] = round(float(df["temperature_2m"].max()), 2)
+                  if "precipitation" in df.columns:
+                      result["total_precipitation_mm"] = round(float(df["precipitation"].sum()), 2)
+                  return {
+                      "statusCode": 200,
+                      "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+                      "body": json.dumps(result)
+                  }
+              except Exception as e:
+                  return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+
+  # =========================
+  # LAMBDA — GET /realtime
+  # =========================
+  LambdaGetRealtime:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nyc-get-realtime
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DDB_TABLE: realtime_events
+      Code:
+        ZipFile: |
+          import json, boto3, os
+          from boto3.dynamodb.conditions import Key
+
+          dynamodb = boto3.resource("dynamodb")
+          table = dynamodb.Table(os.environ["DDB_TABLE"])
+
+          def lambda_handler(event, context):
+              try:
+                  response = table.scan(Limit=50)
+                  items = response.get("Items", [])
+                  return {
+                      "statusCode": 200,
+                      "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+                      "body": json.dumps({
+                          "events_count": len(items),
+                          "latest_events": items[:10]
+                      }, default=str)
+                  }
+              except Exception as e:
+                  return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+
+  # =========================
+  # API GATEWAY
+  # =========================
   TaxiApi:
     Type: AWS::ApiGateway::RestApi
     Properties:
       Name: nyc-taxi-api
+      Description: NYC Taxi Platform REST API
 
+  # --- /trips ---
   TripsResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -15,6 +189,110 @@ Resources:
       PathPart: trips
       RestApiId: !Ref TaxiApi
 
+  TripsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref TaxiApi
+      ResourceId: !Ref TripsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaGetTrips.Arn}/invocations
+
+  TripsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaGetTrips
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaxiApi}/*/GET/trips
+
+  # --- /weather ---
+  WeatherResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt TaxiApi.RootResourceId
+      PathPart: weather
+      RestApiId: !Ref TaxiApi
+
+  WeatherMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref TaxiApi
+      ResourceId: !Ref WeatherResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaGetWeather.Arn}/invocations
+
+  WeatherLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaGetWeather
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaxiApi}/*/GET/weather
+
+  # --- /realtime ---
+  RealtimeResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt TaxiApi.RootResourceId
+      PathPart: realtime
+      RestApiId: !Ref TaxiApi
+
+  RealtimeMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref TaxiApi
+      ResourceId: !Ref RealtimeResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaGetRealtime.Arn}/invocations
+
+  RealtimeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaGetRealtime
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaxiApi}/*/GET/realtime
+
+  # --- Deployment ---
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - TripsMethod
+      - WeatherMethod
+      - RealtimeMethod
+    Properties:
+      RestApiId: !Ref TaxiApi
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref TaxiApi
+      DeploymentId: !Ref ApiDeployment
+      StageName: prod
+
 Outputs:
-  ApiId:
-    Value: !Ref TaxiApi
+  ApiUrl:
+    Value: !Sub https://${TaxiApi}.execute-api.${AWS::Region}.amazonaws.com/prod
+    Export:
+      Name: ApiUrl
+
+  TripsEndpoint:
+    Value: !Sub https://${TaxiApi}.execute-api.${AWS::Region}.amazonaws.com/prod/trips
+
+  WeatherEndpoint:
+    Value: !Sub https://${TaxiApi}.execute-api.${AWS::Region}.amazonaws.com/prod/weather
+
+  RealtimeEndpoint:
+    Value: !Sub https://${TaxiApi}.execute-api.${AWS::Region}.amazonaws.com/prod/realtime
