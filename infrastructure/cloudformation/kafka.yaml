@@ -2,7 +2,6 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Kafka EC2 (Free Tier)
 
 Parameters:
-
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
 
@@ -16,7 +15,6 @@ Resources:
         Fn::ImportValue: MainVPC
 
       SecurityGroupIngress:
-
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
@@ -30,12 +28,13 @@ Resources:
   KafkaInstance:
     Type: AWS::EC2::Instance
     Properties:
-
       InstanceType: t3.micro
-
-      ImageId: ami-0f7cd40eac2214b37   # Amazon Linux eu-west-3 (à vérifier plus tard)
+      ImageId: ami-0f7cd40eac2214b37
 
       KeyName: !Ref KeyPairName
+
+      SubnetId:
+        Fn::ImportValue: PublicSubnetId
 
       SecurityGroupIds:
         - !Ref KafkaSecurityGroup
@@ -53,6 +52,5 @@ Resources:
           echo "Kafka installed"
 
 Outputs:
-
   KafkaPublicIP:
     Value: !GetAtt KafkaInstance.PublicIp
