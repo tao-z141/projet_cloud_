@@ -1,7 +1,7 @@
 import sys
 from pyspark.context import SparkContext
-from pyspark.sql.functions import col, to_date, sha2, round as spark_round, from_json, explode, arrays_zip, lit
-from pyspark.sql.types import DoubleType, ArrayType, StringType, StructType, StructField, FloatType
+from pyspark.sql.functions import col, to_date, sha2, round as spark_round, posexplode
+from pyspark.sql.types import DoubleType
 from awsglue.context import GlueContext
 from awsglue.job import Job
 from awsglue.utils import getResolvedOptions
@@ -51,36 +51,56 @@ taxi_clean = taxi_clean.withColumn(
 ).drop("VendorID")
 
 # ======================
-# READ BRONZE WEATHER (JSON historique Open-Meteo)
+# READ BRONZE WEATHER
 # ======================
 print("Reading Bronze weather data...")
 weather_raw = spark.read.json(f"{BUCKET}/bronze/weather/")
 
-# Open-Meteo retourne un objet avec hourly.time[], hourly.temperature_2m[], etc.
-# On doit "exploser" les arrays en lignes
-if "hourly" in weather_raw.columns:
-    weather_clean = weather_raw.select(
-        explode(
-            arrays_zip(
-                col("hourly.time"),
-                col("hourly.temperature_2m"),
-                col("hourly.precipitation"),
-                col("hourly.windspeed_10m"),
-                col("hourly.weathercode")
-            )
-        ).alias("zipped")
-    ).select(
-        col("zipped.0").alias("datetime"),
-        col("zipped.1").alias("temperature_2m"),
-        col("zipped.2").alias("precipitation"),
-        col("zipped.3").alias("windspeed_10m"),
-        col("zipped.4").alias("weathercode")
+# Afficher le schéma pour debug
+print("Weather schema:")
+weather_raw.printSchema()
+
+# ======================
+# PARSE WEATHER JSON (Open-Meteo format)
+# Structure : { hourly: { time: [...], temperature_2m: [...], ... } }
+# On utilise posexplode sur le tableau time pour avoir l'index
+# puis on accède aux autres tableaux par index
+# ======================
+try:
+    # Extraire les arrays
+    weather_with_arrays = weather_raw.select(
+        col("hourly.time").alias("time_arr"),
+        col("hourly.temperature_2m").alias("temp_arr"),
+        col("hourly.precipitation").alias("precip_arr"),
+        col("hourly.windspeed_10m").alias("wind_arr"),
+        col("hourly.weathercode").alias("code_arr")
     )
-    weather_clean = weather_clean.withColumn(
-        "date", to_date(col("datetime"))
+
+    # posexplode sur time pour avoir l'index
+    weather_exploded = weather_with_arrays.select(
+        posexplode(col("time_arr")).alias("idx", "datetime"),
+        col("temp_arr"),
+        col("precip_arr"),
+        col("wind_arr"),
+        col("code_arr")
     )
-    weather_clean = weather_clean.dropna()
-else:
+
+    # Récupérer les autres valeurs par index
+    weather_clean = weather_exploded.select(
+        col("datetime"),
+        col("temp_arr").getItem(col("idx")).alias("temperature_2m"),
+        col("precip_arr").getItem(col("idx")).alias("precipitation"),
+        col("wind_arr").getItem(col("idx")).alias("windspeed_10m"),
+        col("code_arr").getItem(col("idx")).alias("weathercode"),
+        to_date(col("datetime")).alias("date")
+    ).dropna()
+
+    print(f"Weather parsed: {weather_clean.count()} rows")
+    weather_clean.show(5)
+
+except Exception as e:
+    print(f"Weather parsing failed: {e}")
+    print("Falling back to raw weather...")
     weather_clean = weather_raw.dropna()
 
 # ======================
