@@ -1,56 +1,77 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Kafka EC2 (Free Tier)
-
+Description: Kafka EC2 (Free Tier - eu-west-3 Paris)
+ 
 Parameters:
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
-
+    Description: EC2 Key Pair for SSH access
+ 
 Resources:
-
-  KafkaSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Kafka access
-      VpcId:
-        Fn::ImportValue: MainVPC
-
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: 0.0.0.0/0
-
-        - IpProtocol: tcp
-          FromPort: 9092
-          ToPort: 9092
-          CidrIp: 0.0.0.0/0
-
+ 
   KafkaInstance:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
-      ImageId: ami-0f7cd40eac2214b37
-
+      # Amazon Linux 2023 AMI valide pour eu-west-3 (Paris)
+      ImageId: ami-0f61c3f3a7fb3bcce
+ 
       KeyName: !Ref KeyPairName
-
+ 
       SubnetId:
         Fn::ImportValue: PublicSubnetId
-
+ 
+      # Utilise le Security Group déjà créé dans networking.yaml
       SecurityGroupIds:
-        - !Ref KafkaSecurityGroup
-
+        - Fn::ImportValue: KafkaSecurityGroupId
+ 
       UserData:
         Fn::Base64: |
           #!/bin/bash
+          set -e
           yum update -y
           yum install java-17-amazon-corretto -y
-
-          wget https://downloads.apache.org/kafka/3.6.0/kafka_2.13-3.6.0.tgz
-          tar -xzf kafka_2.13-3.6.0.tgz
-          mv kafka_2.13-3.6.0 /opt/kafka
-
-          echo "Kafka installed"
-
+ 
+          # Kafka 3.7.1 avec KRaft (sans Zookeeper)
+          KAFKA_VERSION=3.7.1
+          SCALA_VERSION=2.13
+          wget https://downloads.apache.org/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz
+          tar -xzf kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz
+          mv kafka_${SCALA_VERSION}-${KAFKA_VERSION} /opt/kafka
+ 
+          # Générer un UUID pour KRaft
+          CLUSTER_UUID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
+ 
+          # Formater le storage KRaft
+          /opt/kafka/bin/kafka-storage.sh format \
+            -t $CLUSTER_UUID \
+            -c /opt/kafka/config/kraft/server.properties
+ 
+          # Démarrer Kafka en mode KRaft
+          /opt/kafka/bin/kafka-server-start.sh -daemon \
+            /opt/kafka/config/kraft/server.properties
+ 
+          # Créer le topic taxi-stream-events
+          sleep 10
+          /opt/kafka/bin/kafka-topics.sh \
+            --create \
+            --topic taxi-stream-events \
+            --bootstrap-server localhost:9092 \
+            --partitions 3 \
+            --replication-factor 1
+ 
+          echo "Kafka KRaft started and topic created"
+ 
+      Tags:
+        - Key: Name
+          Value: nyc-kafka-broker
+ 
 Outputs:
   KafkaPublicIP:
     Value: !GetAtt KafkaInstance.PublicIp
+    Export:
+      Name: KafkaPublicIP
+ 
+  KafkaInstanceId:
+    Value: !Ref KafkaInstance
+    Export:
+      Name: KafkaInstanceId
