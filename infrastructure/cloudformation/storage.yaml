@@ -1,38 +1,23 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: S3 Data Lake (Bronze/Silver/Gold)
+
+Description: NYC Taxi Data Lake Storage
 
 Resources:
 
-  BronzeBucket:
+  DataLakeBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub nyc-taxi-bronze-${AWS::AccountId}
+      BucketName: nyc-taxi-platform
+
       VersioningConfiguration:
         Status: Enabled
 
-  SilverBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub nyc-taxi-silver-${AWS::AccountId}
-
-  GoldBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub nyc-taxi-gold-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
 
 Outputs:
 
-  BronzeBucket:
-    Value: !Ref BronzeBucket
-    Export:
-      Name: BronzeBucketName
-
-  SilverBucket:
-    Value: !Ref SilverBucket
-    Export:
-      Name: SilverBucketName
-
-  GoldBucket:
-    Value: !Ref GoldBucket
-    Export:
-      Name: GoldBucketName
+  BucketName:
+    Value: !Ref DataLakeBucket
