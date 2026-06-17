@@ -30,11 +30,6 @@ def load_s3_parquet(prefix):
                 dfs.append(pd.read_parquet(io.BytesIO(r["Body"].read())))
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
-@st.cache_data(ttl=3600)
-def load_zone_lookup():
-    url = "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
-    return pd.read_csv(url)
-
 @st.cache_data(ttl=30)
 def load_realtime():
     try:
@@ -44,7 +39,6 @@ def load_realtime():
         return {"events_count": 0, "latest_events": []}
 
 st.title("🚕 NYC Taxi Data Platform")
-st.caption(f"Architecture Médaillon AWS · Mise à jour: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 st.divider()
 
 tab1, tab2, tab3 = st.tabs(["📊 KPIs Batch", "🌤️ Météo & Corrélations", "⚡ Streaming Temps Réel"])
@@ -59,10 +53,7 @@ with tab1:
     if not df_daily.empty:
         df_daily["day"] = pd.to_datetime(df_daily["day"])
         df_daily = df_daily.sort_values("day")
-        df_daily = df_daily[
-            (df_daily["day"] >= "2024-01-01") &
-            (df_daily["day"] <= "2024-01-31")
-        ]
+        df_daily = df_daily[(df_daily["day"] >= "2024-01-01") & (df_daily["day"] <= "2024-01-31")]
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("🚗 Total Courses", f"{int(df_daily['nb_trips'].sum()):,}")
@@ -84,19 +75,13 @@ with tab1:
 
         if not df_zone.empty:
             st.subheader("🗺️ Top 20 Zones de départ")
-            # Utiliser zone_name si disponible sinon zone_id
-            if "zone_name" in df_zone.columns:
-                df_top = df_zone.sort_values("nb_trips", ascending=False).head(20)
-                df_top["label"] = df_top["zone_name"].fillna(df_top["zone_id"].astype(str))
-                color_col = "borough" if "borough" in df_top.columns else None
-            else:
-                df_top = df_zone.sort_values("nb_trips", ascending=False).head(20)
-                df_top["label"] = df_top["zone_id"].astype(str)
-                color_col = None
+            df_top = df_zone.sort_values("nb_trips", ascending=False).head(20)
+            label_col = "zone_name" if "zone_name" in df_top.columns else "zone_id"
+            color_col = "borough" if "borough" in df_top.columns else None
+            df_top["label"] = df_top[label_col].astype(str)
 
             st.plotly_chart(px.bar(df_top, x="label", y="nb_trips",
-                title="Courses par zone (Top 20)",
-                color=color_col,
+                title="Courses par zone (Top 20)", color=color_col,
                 labels={"label": "Zone", "nb_trips": "Courses"},
                 color_discrete_sequence=px.colors.qualitative.Set2),
                 use_container_width=True)
@@ -128,82 +113,104 @@ with tab2:
                 title="🌡️ Température horaire NYC — Janvier 2024",
                 color_discrete_sequence=["#FF851B"]), use_container_width=True)
 
-        # Corrélation météo / courses
         if not df_daily_corr.empty and "date" in df_weather.columns:
             df_daily_corr["day"] = pd.to_datetime(df_daily_corr["day"])
-            df_daily_corr = df_daily_corr[
-                (df_daily_corr["day"] >= "2024-01-01") &
-                (df_daily_corr["day"] <= "2024-01-31")
-            ]
+            df_daily_corr = df_daily_corr[(df_daily_corr["day"] >= "2024-01-01") & (df_daily_corr["day"] <= "2024-01-31")]
             df_weather["date"] = pd.to_datetime(df_weather["date"])
             df_weather_daily = df_weather.groupby("date").agg(
                 avg_temp=("temperature_2m", "mean"),
                 total_precip=("precipitation", "sum")
             ).reset_index()
 
-            df_corr = df_daily_corr.merge(
-                df_weather_daily, left_on="day", right_on="date", how="inner"
-            )
+            df_corr = df_daily_corr.merge(df_weather_daily, left_on="day", right_on="date", how="inner")
 
             if not df_corr.empty:
                 st.subheader("📊 Corrélation Météo / Courses")
                 c1, c2 = st.columns(2)
-                c1.plotly_chart(px.scatter(df_corr,
-                    x="avg_temp", y="nb_trips",
-                    title="🌡️ Température vs Courses",
-                    trendline="ols",
+                c1.plotly_chart(px.scatter(df_corr, x="avg_temp", y="nb_trips",
+                    title="🌡️ Température vs Courses", trendline="ols",
                     color_discrete_sequence=["#0074D9"]), use_container_width=True)
-                c2.plotly_chart(px.scatter(df_corr,
-                    x="total_precip", y="nb_trips",
-                    title="🌧️ Précipitations vs Courses",
-                    trendline="ols",
+                c2.plotly_chart(px.scatter(df_corr, x="total_precip", y="nb_trips",
+                    title="🌧️ Précipitations vs Courses", trendline="ols",
                     color_discrete_sequence=["#7FDBFF"]), use_container_width=True)
     else:
         st.warning("Aucune donnée météo. Relance l'ingestion puis le Glue Pipeline.")
 
 # --- TAB 3 ---
 with tab3:
-    st.subheader("⚡ Événements Streaming Kafka → DynamoDB")
+    st.subheader("⚡ Supervision Temps Réel — Kafka → DynamoDB")
     if st.button("🔄 Rafraîchir"):
         st.cache_data.clear()
 
     realtime = load_realtime()
-    st.metric("📡 Événements en base", realtime.get("events_count", 0))
-
+    total_events = realtime.get("events_count", 0)
     events = realtime.get("latest_events", [])
+
     if events:
         df_rt = pd.DataFrame(events)
+        for c in ["fare", "speed", "pickup_lat", "pickup_lon", "dropoff_lat", "dropoff_lon"]:
+            if c in df_rt.columns:
+                df_rt[c] = pd.to_numeric(df_rt[c], errors="coerce")
 
-        # Afficher toutes les colonnes disponibles
-        st.dataframe(df_rt, use_container_width=True)
+        # KPIs temps réel
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("📡 Total événements", f"{total_events:,}")
+        if "fare" in df_rt.columns:
+            k2.metric("💰 Tarif moyen", f"${df_rt['fare'].mean():.2f}")
+            k3.metric("💵 Revenu estimé", f"${df_rt['fare'].sum():.0f}")
+        if "speed" in df_rt.columns:
+            k4.metric("🚗 Vitesse moyenne", f"{df_rt['speed'].mean():.0f} km/h")
 
-        # Détecter les colonnes dynamiquement
-        fare_col = next((c for c in ["fare", "fare_amount"] if c in df_rt.columns), None)
-        lat_col = next((c for c in ["pickup_lat"] if c in df_rt.columns), None)
-        lon_col = next((c for c in ["pickup_lon"] if c in df_rt.columns), None)
-        speed_col = next((c for c in ["speed"] if c in df_rt.columns), None)
+        st.divider()
+
+        # Détection anomalies
+        if "fare" in df_rt.columns and "speed" in df_rt.columns:
+            df_rt["anomalie"] = (df_rt["fare"] > 70) | (df_rt["speed"] > 85)
+            nb_anomalies = int(df_rt["anomalie"].sum())
+            if nb_anomalies > 0:
+                st.warning(f"⚠️ {nb_anomalies} course(s) suspecte(s) — tarif > $70 ou vitesse > 85 km/h")
+                anomaly_cols = [c for c in ["taxi_id", "fare", "speed", "ingested_at"] if c in df_rt.columns]
+                st.dataframe(df_rt[df_rt["anomalie"]][anomaly_cols], use_container_width=True)
+            else:
+                st.success("✅ Aucune anomalie détectée")
+
+        st.divider()
 
         c1, c2 = st.columns(2)
 
-        if fare_col:
-            df_rt[fare_col] = pd.to_numeric(df_rt[fare_col], errors="coerce")
-            c1.plotly_chart(px.histogram(
-                df_rt.dropna(subset=[fare_col]),
-                x=fare_col, title="Distribution des tarifs",
-                color_discrete_sequence=["#F6C90E"], nbins=20),
-                use_container_width=True)
+        if "fare" in df_rt.columns:
+            fig_fare = px.histogram(df_rt.dropna(subset=["fare"]), x="fare",
+                title="💰 Distribution des tarifs", color_discrete_sequence=["#F6C90E"], nbins=15)
+            fig_fare.add_vline(x=70, line_dash="dash", line_color="red", annotation_text="Seuil $70")
+            c1.plotly_chart(fig_fare, use_container_width=True)
 
-        if lat_col and lon_col:
-            df_rt[lat_col] = pd.to_numeric(df_rt[lat_col], errors="coerce")
-            df_rt[lon_col] = pd.to_numeric(df_rt[lon_col], errors="coerce")
-            scatter_df = df_rt.dropna(subset=[lat_col, lon_col])
+        if "speed" in df_rt.columns:
+            fig_speed = px.histogram(df_rt.dropna(subset=["speed"]), x="speed",
+                title="🚗 Distribution des vitesses (km/h)", color_discrete_sequence=["#0074D9"], nbins=15)
+            fig_speed.add_vline(x=85, line_dash="dash", line_color="red", annotation_text="Seuil 85 km/h")
+            c2.plotly_chart(fig_speed, use_container_width=True)
+
+        if "pickup_lat" in df_rt.columns and "pickup_lon" in df_rt.columns:
+            scatter_df = df_rt.dropna(subset=["pickup_lat", "pickup_lon"])
             if not scatter_df.empty:
-                color_param = speed_col if speed_col and pd.to_numeric(df_rt[speed_col], errors="coerce").notna().any() else None
-                c2.plotly_chart(px.scatter(scatter_df,
-                    x=lon_col, y=lat_col,
-                    title="🗺️ Positions de départ — Manhattan",
-                    color=color_param,
-                    color_continuous_scale="RdYlGn"),
+                st.plotly_chart(px.scatter(scatter_df, x="pickup_lon", y="pickup_lat",
+                    color="fare" if "fare" in scatter_df.columns else None,
+                    size="fare" if "fare" in scatter_df.columns else None,
+                    title="🗺️ Carte des prises en charge (couleur = tarif)",
+                    color_continuous_scale="RdYlGn",
+                    labels={"pickup_lon": "Longitude", "pickup_lat": "Latitude", "fare": "Tarif ($)"}),
                     use_container_width=True)
+
+        st.subheader("📋 Derniers événements")
+        display_cols = [c for c in ["taxi_id", "fare", "speed", "pickup_lat", "pickup_lon", "ingested_at"] if c in df_rt.columns]
+        st.dataframe(df_rt[display_cols], use_container_width=True)
+
     else:
-        st.info("Lance le streaming Kafka sur l'EC2 pour voir les données.")
+        st.info("Lance le streaming Kafka sur l'EC2 pour voir les données en temps réel.")
+        st.code("""ssh -i nyc-taxi-key.pem ec2-user@35.180.91.209
+export AWS_DEFAULT_REGION=eu-west-3
+export KAFKA_HEAP_OPTS="-Xmx512m -Xms256m"
+sudo -E /opt/kafka/bin/kafka-server-start.sh -daemon /opt/kafka/config/kraft/server.properties
+sleep 15
+nohup python3 kafka_producer.py > /tmp/producer.log 2>&1 &
+nohup python3 kafka_consumer.py > /tmp/consumer.log 2>&1 &""", language="bash")
