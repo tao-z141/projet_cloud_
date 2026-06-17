@@ -1,22 +1,13 @@
 #!/bin/bash
-
-# =========================
-# Deploy NYC Taxi Platform
-# CloudFormation Stacks
-# =========================
-
 set -e
 
 REGION="${AWS_DEFAULT_REGION:-eu-west-3}"
-KEY_PAIR="${1:-my-key}"   # Passer le nom de la key pair en argument: ./deploy.sh mon-keypair
+KEY_PAIR="${1:-nyc-taxi-key}"
 
 echo "========================================"
 echo " NYC Taxi Platform — CloudFormation Deploy"
 echo " Region: $REGION | Key: $KEY_PAIR"
 echo "========================================"
-
-# ORDRE CORRECT : Networking d'abord (exporte MainVPC, PublicSubnetId, KafkaSecurityGroupId)
-# puis Storage, puis Databases (importe MainVPC), puis Kafka (importe MainVPC + SubnetId + SG), puis API
 
 echo ""
 echo "[1/5] Deploying Networking Stack..."
@@ -57,7 +48,7 @@ echo "[5/5] Deploying API Stack..."
 aws cloudformation deploy \
   --stack-name nyc-api \
   --template-file infrastructure/cloudformation/api.yaml \
-  --capabilities CAPABILITY_IAM \
+  --capabilities CAPABILITY_NAMED_IAM \
   --region "$REGION"
 echo "    API OK"
 
@@ -66,7 +57,6 @@ echo "========================================"
 echo " DEPLOYMENT COMPLETE"
 echo "========================================"
 
-# Afficher les outputs clés
 echo ""
 echo "--- Stack Outputs ---"
 aws cloudformation describe-stacks \
