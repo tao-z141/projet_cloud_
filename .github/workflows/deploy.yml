@@ -1,86 +1,83 @@
-#!/bin/bash
+name: Deploy NYC Taxi Platform
 
-# =========================
-# Deploy NYC Taxi Platform
-# CloudFormation Stacks
-# =========================
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      key_pair_name:
+        description: 'EC2 Key Pair name (overrides secret)'
+        required: false
 
-set -e
+env:
+  AWS_DEFAULT_REGION: eu-west-3
 
-REGION="${AWS_DEFAULT_REGION:-eu-west-3}"
-KEY_PAIR="${1:-my-key}"   # Passer le nom de la key pair en argument: ./deploy.sh mon-keypair
+jobs:
+  validate:
+    name: Validate CloudFormation Templates
+    runs-on: ubuntu-latest
 
-echo "========================================"
-echo " NYC Taxi Platform — CloudFormation Deploy"
-echo " Region: $REGION | Key: $KEY_PAIR"
-echo "========================================"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-# ORDRE CORRECT : Networking d'abord (exporte MainVPC, PublicSubnetId, KafkaSecurityGroupId)
-# puis Storage, puis Databases (importe MainVPC), puis Kafka (importe MainVPC + SubnetId + SG), puis API
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
 
-echo ""
-echo "[1/5] Deploying Networking Stack..."
-aws cloudformation deploy \
-  --stack-name nyc-network \
-  --template-file infrastructure/cloudformation/networking.yaml \
-  --region "$REGION"
-echo "    Networking OK"
+      - name: Validate networking.yaml
+        run: aws cloudformation validate-template --template-body file://infrastructure/cloudformation/networking.yaml
 
-echo ""
-echo "[2/5] Deploying Storage Stack..."
-aws cloudformation deploy \
-  --stack-name nyc-storage \
-  --template-file infrastructure/cloudformation/storage.yaml \
-  --region "$REGION"
-echo "    Storage OK"
+      - name: Validate storage.yaml
+        run: aws cloudformation validate-template --template-body file://infrastructure/cloudformation/storage.yaml
 
-echo ""
-echo "[3/5] Deploying Databases Stack..."
-aws cloudformation deploy \
-  --stack-name nyc-db \
-  --template-file infrastructure/cloudformation/databases.yaml \
-  --capabilities CAPABILITY_IAM \
-  --region "$REGION"
-echo "    Databases OK"
+      - name: Validate databases.yaml
+        run: aws cloudformation validate-template --template-body file://infrastructure/cloudformation/databases.yaml
 
-echo ""
-echo "[4/5] Deploying Kafka Stack..."
-aws cloudformation deploy \
-  --stack-name nyc-kafka \
-  --template-file infrastructure/cloudformation/kafka.yaml \
-  --parameter-overrides KeyPairName="$KEY_PAIR" \
-  --region "$REGION"
-echo "    Kafka OK"
+      - name: Validate kafka.yaml
+        run: aws cloudformation validate-template --template-body file://infrastructure/cloudformation/kafka.yaml
 
-echo ""
-echo "[5/5] Deploying API Stack..."
-aws cloudformation deploy \
-  --stack-name nyc-api \
-  --template-file infrastructure/cloudformation/api.yaml \
-  --capabilities CAPABILITY_IAM \
-  --region "$REGION"
-echo "    API OK"
+      - name: Validate api.yaml
+        run: aws cloudformation validate-template --template-body file://infrastructure/cloudformation/api.yaml
 
-echo ""
-echo "========================================"
-echo " DEPLOYMENT COMPLETE"
-echo "========================================"
+  deploy:
+    name: Deploy CloudFormation Stacks
+    runs-on: ubuntu-latest
+    needs: validate
 
-# Afficher les outputs clés
-echo ""
-echo "--- Stack Outputs ---"
-aws cloudformation describe-stacks \
-  --stack-name nyc-kafka \
-  --region "$REGION" \
-  --query "Stacks[0].Outputs" \
-  --output table 2>/dev/null || true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-aws cloudformation describe-stacks \
-  --stack-name nyc-db \
-  --region "$REGION" \
-  --query "Stacks[0].Outputs" \
-  --output table 2>/dev/null || true
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
 
-echo ""
-echo "Tip: Update KAFKA_BROKER in streaming/kafka_producer.py and streaming/kafka_consumer.py"
-echo "     with the KafkaPublicIP shown above."
+      - name: Resolve Key Pair name
+        id: keypair
+        run: |
+          # Priorité : input manuel > secret > valeur par défaut
+          KEY="${{ github.event.inputs.key_pair_name }}"
+          if [ -z "$KEY" ]; then
+            KEY="${{ secrets.KEY_PAIR_NAME }}"
+          fi
+          if [ -z "$KEY" ]; then
+            KEY="nyc-taxi-key"
+          fi
+          echo "name=$KEY" >> $GITHUB_OUTPUT
+          echo "Using Key Pair: $KEY"
+
+      - name: Make deploy script executable
+        run: chmod +x scripts/deploy.sh
+
+      - name: Deploy all stacks
+        run: scripts/deploy.sh "${{ steps.keypair.outputs.name }}"
+        env:
+          AWS_DEFAULT_REGION: eu-west-3
