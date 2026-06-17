@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: API Gateway for NYC Taxi Platform
+Description: API Gateway (NYC Taxi Platform)
 
 Resources:
 
@@ -15,14 +15,6 @@ Resources:
       PathPart: trips
       RestApiId: !Ref TaxiApi
 
-  TripsMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref TaxiApi
-      ResourceId: !Ref TripsResource
-      HttpMethod: GET
-      AuthorizationType: NONE
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: "LAMBDA_URI_PLACEHOLDER"
+Outputs:
+  ApiId:
+    Value: !Ref TaxiApi
