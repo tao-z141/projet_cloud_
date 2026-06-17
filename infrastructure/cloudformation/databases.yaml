@@ -11,17 +11,14 @@ Resources:
     Properties:
       TableName: realtime_events
       BillingMode: PAY_PER_REQUEST
-
       AttributeDefinitions:
         - AttributeName: event_id
           AttributeType: S
         - AttributeName: taxi_id
           AttributeType: S
-
       KeySchema:
         - AttributeName: event_id
           KeyType: HASH
-
       GlobalSecondaryIndexes:
         - IndexName: taxi_id-index
           KeySchema:
@@ -29,7 +26,6 @@ Resources:
               KeyType: HASH
           Projection:
             ProjectionType: ALL
-
       Tags:
         - Key: Project
           Value: nyc-taxi-platform
@@ -48,7 +44,7 @@ Resources:
           Value: nyc-private-subnet-2
 
   # ======================
-  # SUBNET GROUP RDS — 2 subnets dans le MÊME VPC (MainVPC)
+  # SUBNET GROUP RDS
   # ======================
   RDSSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -62,18 +58,24 @@ Resources:
           Value: nyc-rds-subnet-group
 
   # ======================
-  # SECURITY GROUP RDS — MÊME VPC que le SubnetGroup
+  # SECURITY GROUP RDS
+  # Autorise Glue Security Group à accéder au port 5432
   # ======================
   RDSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow PostgreSQL access from within VPC only
+      GroupDescription: Allow PostgreSQL access from Glue and VPC
       VpcId: !ImportValue MainVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 5432
           ToPort: 5432
           CidrIp: 10.0.0.0/16
+        # Autoriser Glue Security Group explicitement
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !ImportValue GlueSecurityGroupId
       Tags:
         - Key: Name
           Value: nyc-rds-sg
@@ -109,24 +111,45 @@ Resources:
       AllocatedStorage: 20
       StorageType: gp2
       StorageEncrypted: false
-
       DBName: taxidb
       MasterUsername: postgres
       MasterUserPassword:
         Fn::Sub: "{{resolve:secretsmanager:${DBPasswordSecret}::password}}"
-
       DBSubnetGroupName: !Ref RDSSubnetGroup
       VPCSecurityGroups:
         - !Ref RDSSecurityGroup
-
       PubliclyAccessible: false
       BackupRetentionPeriod: 1
       MultiAZ: false
       DeletionProtection: false
-
       Tags:
         - Key: Project
           Value: nyc-taxi-platform
+
+  # ======================
+  # GLUE CONNECTION vers RDS
+  # Permet à Glue de se connecter au RDS dans le VPC
+  # ======================
+  GlueRDSConnection:
+    Type: AWS::Glue::Connection
+    DependsOn: TaxiPostgres
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      ConnectionInput:
+        Name: nyc-rds-connection
+        ConnectionType: JDBC
+        ConnectionProperties:
+          JDBC_CONNECTION_URL: !Sub
+            - "jdbc:postgresql://${Endpoint}:5432/taxidb"
+            - Endpoint: !GetAtt TaxiPostgres.Endpoint.Address
+          USERNAME: postgres
+          PASSWORD: !Sub "{{resolve:secretsmanager:${DBPasswordSecret}::password}}"
+          JDBC_ENFORCE_SSL: "false"
+        PhysicalConnectionRequirements:
+          SubnetId: !ImportValue PrivateSubnetGlueId
+          SecurityGroupIdList:
+            - !ImportValue GlueSecurityGroupId
+          AvailabilityZone: eu-west-3a
 
 Outputs:
   RDSAddress:
@@ -148,3 +171,8 @@ Outputs:
     Value: !Ref DBPasswordSecret
     Export:
       Name: DBSecretArn
+
+  GlueConnectionName:
+    Value: !Ref GlueRDSConnection
+    Export:
+      Name: GlueConnectionName
