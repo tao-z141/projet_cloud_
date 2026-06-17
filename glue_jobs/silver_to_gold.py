@@ -125,6 +125,7 @@ weather_daily = spark.sql("""
     FROM weather
     GROUP BY date
 """)
+kpi_daily.createOrReplaceTempView("kpi_daily")
 weather_daily.createOrReplaceTempView("weather_daily")
 
 dm_weather_impact = spark.sql("""
