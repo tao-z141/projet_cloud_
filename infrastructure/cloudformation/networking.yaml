@@ -3,9 +3,6 @@ Description: Networking layer for NYC Taxi Data Platform (Free Tier - eu-west-3)
 
 Resources:
 
-  # =========================
-  # VPC
-  # =========================
   MainVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -16,9 +13,6 @@ Resources:
         - Key: Name
           Value: nyc-taxi-vpc
 
-  # =========================
-  # Public Subnet (AZ-a) — Kafka EC2
-  # =========================
   PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
@@ -30,10 +24,6 @@ Resources:
         - Key: Name
           Value: nyc-public-subnet
 
-  # =========================
-  # Private Subnet (AZ-a) — Glue + RDS
-  # Glue nécessite un subnet SANS route internet directe
-  # =========================
   PrivateSubnetGlue:
     Type: AWS::EC2::Subnet
     Properties:
@@ -45,9 +35,6 @@ Resources:
         - Key: Name
           Value: nyc-private-subnet-glue
 
-  # =========================
-  # Security Group Kafka
-  # =========================
   KafkaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -66,10 +53,6 @@ Resources:
         - Key: Name
           Value: nyc-kafka-sg
 
-  # =========================
-  # Security Group Glue
-  # Glue exige une règle self-referencing (trafic entre workers)
-  # =========================
   GlueSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -88,9 +71,6 @@ Resources:
       ToPort: 65535
       SourceSecurityGroupId: !Ref GlueSecurityGroup
 
-  # =========================
-  # Internet Gateway
-  # =========================
   InternetGateway:
     Type: AWS::EC2::InternetGateway
 
@@ -100,9 +80,6 @@ Resources:
       VpcId: !Ref MainVPC
       InternetGatewayId: !Ref InternetGateway
 
-  # =========================
-  # Route Table Public
-  # =========================
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -122,7 +99,6 @@ Resources:
       SubnetId: !Ref PublicSubnet
       RouteTableId: !Ref PublicRouteTable
 
-  # Route Table Private (pas de route internet — requis par Glue)
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -133,6 +109,20 @@ Resources:
     Properties:
       SubnetId: !Ref PrivateSubnetGlue
       RouteTableId: !Ref PrivateRouteTable
+
+  # =========================
+  # VPC Endpoint S3 — requis pour Glue dans subnet privé
+  # Gratuit — route privée vers S3 sans passer par internet
+  # =========================
+  S3VPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref MainVPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+        - !Ref PublicRouteTable
 
 Outputs:
   VPCId:
