@@ -22,22 +22,44 @@ job.init(args["JOB_NAME"], args)
 BUCKET = "s3://nyc-taxi-platform"
 
 # ======================
-# RÉCUPÉRER LES CREDENTIALS RDS DEPUIS SECRETS MANAGER
+# CREDENTIALS RDS depuis Secrets Manager
 # ======================
 secrets_client = boto3.client("secretsmanager", region_name="eu-west-3")
 secret = secrets_client.get_secret_value(SecretId="nyc-db-password")
 creds = json.loads(secret["SecretString"])
 
-# Récupérer l'endpoint RDS depuis les outputs CloudFormation
+# ======================
+# ENDPOINT RDS depuis CloudFormation
+# On affiche tous les outputs pour debugger si besoin
+# ======================
 cf_client = boto3.client("cloudformation", region_name="eu-west-3")
 stack = cf_client.describe_stacks(StackName="nyc-db")
-outputs = {o["OutputKey"]: o["OutputValue"] for o in stack["Stacks"][0]["Outputs"]}
+outputs = stack["Stacks"][0].get("Outputs", [])
 
-RDS_HOST = outputs["RDSEndpoint"]
-RDS_PORT = outputs.get("RDSPort", "5432")
+# Log tous les outputs disponibles
+print("CloudFormation outputs disponibles:")
+for o in outputs:
+    print(f"  {o['OutputKey']} = {o['OutputValue']}")
+
+outputs_dict = {o["OutputKey"]: o["OutputValue"] for o in outputs}
+
+# Essayer plusieurs noms possibles pour l'endpoint
+RDS_HOST = (
+    outputs_dict.get("RDSEndpoint") or
+    outputs_dict.get("RDSAddress") or
+    outputs_dict.get("DBEndpoint") or
+    outputs_dict.get("Endpoint")
+)
+
+if not RDS_HOST:
+    raise ValueError(f"RDS endpoint not found in outputs: {list(outputs_dict.keys())}")
+
+RDS_PORT = outputs_dict.get("RDSPort", "5432")
 RDS_DB   = "taxidb"
 RDS_USER = creds["username"]
 RDS_PASS = creds["password"]
+
+print(f"Connecting to RDS: {RDS_HOST}:{RDS_PORT}/{RDS_DB}")
 
 JDBC_URL = f"jdbc:postgresql://{RDS_HOST}:{RDS_PORT}/{RDS_DB}"
 JDBC_PROPS = {
@@ -54,9 +76,6 @@ kpi_daily = spark.read.parquet(f"{BUCKET}/gold/kpi_daily/")
 
 print("Reading Gold kpi_zone...")
 kpi_zone = spark.read.parquet(f"{BUCKET}/gold/kpi_zone/")
-
-print("Reading Silver taxi_clean for dimensions...")
-taxi = spark.read.parquet(f"{BUCKET}/silver/taxi_clean/")
 
 # ======================
 # DIMENSION : dim_date
@@ -82,7 +101,7 @@ dim_zone = kpi_zone.select(
 ).dropDuplicates(["zone_id"])
 
 # ======================
-# FACT TABLE : fact_trips (depuis kpi_daily)
+# FACT TABLE : fact_trips
 # ======================
 print("Building fact_trips...")
 fact_trips = kpi_daily.select(
@@ -95,26 +114,17 @@ fact_trips = kpi_daily.select(
 )
 
 # ======================
-# WRITE TO RDS PostgreSQL
+# WRITE TO RDS
 # ======================
 print("Writing dim_date to RDS...")
-dim_date.write \
-    .mode("overwrite") \
-    .jdbc(JDBC_URL, "dim_date", properties=JDBC_PROPS)
+dim_date.write.mode("overwrite").jdbc(JDBC_URL, "dim_date", properties=JDBC_PROPS)
 
 print("Writing dim_zone to RDS...")
-dim_zone.write \
-    .mode("overwrite") \
-    .jdbc(JDBC_URL, "dim_zone", properties=JDBC_PROPS)
+dim_zone.write.mode("overwrite").jdbc(JDBC_URL, "dim_zone", properties=JDBC_PROPS)
 
 print("Writing fact_trips to RDS...")
-fact_trips.write \
-    .mode("overwrite") \
-    .jdbc(JDBC_URL, "fact_trips", properties=JDBC_PROPS)
+fact_trips.write.mode("overwrite").jdbc(JDBC_URL, "fact_trips", properties=JDBC_PROPS)
 
-# ======================
-# QUALITY CHECK
-# ======================
 print(f"fact_trips rows: {fact_trips.count()}")
 print(f"dim_date rows: {dim_date.count()}")
 print(f"dim_zone rows: {dim_zone.count()}")
