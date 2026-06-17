@@ -1,11 +1,11 @@
 name: Run Data Ingestion
 
 on:
-  workflow_dispatch:  # Lancement manuel uniquement
+  workflow_dispatch:
 
 jobs:
   ingest:
-    name: Ingest Taxi + Weather data to S3 Bronze
+    name: Ingest Taxi + Weather + Zones to S3 Bronze
     runs-on: ubuntu-latest
 
     steps:
@@ -25,11 +25,13 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install pandas pyarrow boto3 requests
+        run: pip install pandas pyarrow boto3 requests
 
       - name: Ingest Taxi data → S3 bronze/taxi/
         run: python ingestion/taxi_api_ingestion.py
 
-      - name: Ingest Weather data → S3 bronze/weather/
+      - name: Ingest Weather historical → S3 bronze/weather/
         run: python ingestion/weather_ingestion.py
+
+      - name: Ingest Zones lookup → S3 bronze/zones/
+        run: python ingestion/zones_ingestion.py
