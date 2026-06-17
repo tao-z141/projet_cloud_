@@ -34,15 +34,11 @@ Resources:
               - "/opt/kafka/bin/kafka-server-start.sh -daemon /opt/kafka/config/kraft/server.properties"
               - "sleep 15"
               - "/opt/kafka/bin/kafka-topics.sh --create --topic taxi-stream-events --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1"
-              - !Sub "/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource KafkaInstance --region ${AWS::Region}"
+              - "echo 'Kafka setup complete' >> /var/log/kafka-setup.log"
 
       Tags:
         - Key: Name
           Value: nyc-kafka-broker
-
-    CreationPolicy:
-      ResourceSignal:
-        Timeout: PT10M
 
 Outputs:
   KafkaPublicIP:
