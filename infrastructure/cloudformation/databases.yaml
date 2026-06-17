@@ -1,10 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Databases layer (RDS + DynamoDB)
+Description: Databases layer (RDS PostgreSQL + DynamoDB) — Free Tier optimized
 
 Resources:
 
   # ======================
-  # DynamoDB
+  # DynamoDB — 100% gratuit (pay-per-request, free tier illimité)
   # ======================
   RealtimeEventsTable:
     Type: AWS::DynamoDB::Table
@@ -15,70 +15,137 @@ Resources:
       AttributeDefinitions:
         - AttributeName: event_id
           AttributeType: S
+        - AttributeName: taxi_id
+          AttributeType: S
 
       KeySchema:
         - AttributeName: event_id
           KeyType: HASH
 
+      GlobalSecondaryIndexes:
+        - IndexName: taxi_id-index
+          KeySchema:
+            - AttributeName: taxi_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+      Tags:
+        - Key: Project
+          Value: nyc-taxi-platform
+
   # ======================
-  # SECURITY GROUP
+  # SECURITY GROUP RDS — accès VPC uniquement
   # ======================
   RDSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow PostgreSQL access
+      GroupDescription: Allow PostgreSQL access from within VPC only
       VpcId:
         Fn::ImportValue: MainVPC
-
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 5432
           ToPort: 5432
-          CidrIp: 0.0.0.0/0
+          CidrIp: 10.0.0.0/16   # VPC interne uniquement
 
   # ======================
-  #  SECRETS MANAGER (ICI)
+  # SUBNET GROUP — requis pour RDS en VPC (RDS exige 2 AZ minimum)
+  # ======================
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Fn::ImportValue: MainVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: eu-west-3b
+      Tags:
+        - Key: Name
+          Value: nyc-private-subnet-2
+
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for NYC Taxi RDS
+      SubnetIds:
+        - Fn::ImportValue: PublicSubnetId
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: nyc-rds-subnet-group
+
+  # ======================
+  # SECRETS MANAGER — ~0.40$/mois (très faible)
   # ======================
   DBPasswordSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
       Name: nyc-db-password
-      Description: Password for NYC Taxi RDS
+      Description: Password for NYC Taxi RDS PostgreSQL
       GenerateSecretString:
         SecretStringTemplate: '{"username":"postgres"}'
         GenerateStringKey: "password"
         PasswordLength: 16
-        ExcludeCharacters: '"@/\\'
+        ExcludeCharacters: '"@/\'
 
   # ======================
-  # RDS POSTGRES
+  # RDS POSTGRES — FREE TIER
+  # ✅ db.t3.micro = 750h/mois gratuites (1ère année)
+  # ✅ 20 Go gp2 inclus
+  # ✅ StorageEncrypted: false (le chiffrement n'est PAS dispo sur t3.micro free tier)
+  # ✅ BackupRetentionPeriod: 1 (minimum pour rester dans les 20Go de backup gratuits)
+  # ✅ MultiAZ: false (Multi-AZ est payant)
+  # ⚠️  À ÉTEINDRE entre les sessions pour ne pas dépasser 750h/mois
   # ======================
   TaxiPostgres:
     Type: AWS::RDS::DBInstance
+    DependsOn: DBPasswordSecret
     Properties:
       DBInstanceIdentifier: nyc-taxi-db
       Engine: postgres
-      DBInstanceClass: db.t3.micro
-      AllocatedStorage: 20
-      StorageType: gp2
+      # Ne pas figer la version mineure pour éviter les erreurs de dispo en eu-west-3
+      EngineVersion: "15"
+      DBInstanceClass: db.t3.micro   # ✅ Free tier
+      AllocatedStorage: 20           # ✅ Free tier (max 20 Go inclus)
+      StorageType: gp2               # ✅ Free tier
+      StorageEncrypted: false        # ✅ Non dispo sur t3.micro — ne pas activer
+
+      DBName: taxidb
 
       MasterUsername: postgres
-
-      # utilise le secret créé au-dessus
       MasterUserPassword:
         Fn::Sub: "{{resolve:secretsmanager:${DBPasswordSecret}::password}}"
 
-      PubliclyAccessible: true
-
+      DBSubnetGroupName: !Ref RDSSubnetGroup
       VPCSecurityGroups:
         - !Ref RDSSecurityGroup
+
+      PubliclyAccessible: false      # ✅ Sécurité — accès Lambda/Glue dans le VPC
+      BackupRetentionPeriod: 1       # ✅ Minimum (7 jours consomment du stockage)
+      MultiAZ: false                 # ✅ Free tier — pas de Multi-AZ
+      DeletionProtection: false      # ✅ Facilite le nettoyage en fin de projet
+
+      Tags:
+        - Key: Project
+          Value: nyc-taxi-platform
 
 Outputs:
   RDSAddress:
     Value: !GetAtt TaxiPostgres.Endpoint.Address
+    Export:
+      Name: RDSEndpoint
+
+  RDSPort:
+    Value: !GetAtt TaxiPostgres.Endpoint.Port
+    Export:
+      Name: RDSPort
 
   DynamoTable:
     Value: !Ref RealtimeEventsTable
+    Export:
+      Name: DynamoTableName
 
   DBSecretArn:
     Value: !Ref DBPasswordSecret
+    Export:
+      Name: DBSecretArn
