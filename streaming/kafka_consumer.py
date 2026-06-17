@@ -9,7 +9,7 @@ from datetime import datetime
 # =========================
 # Remplacer par l'IP publique EC2 après déploiement CloudFormation
 # Ex: KAFKA_BROKER = "54.12.34.56:9092"
-KAFKA_BROKER = "35.180.91.209:9092"
+KAFKA_BROKER = "localhost:9092"
 
 TOPIC = "taxi-stream-events"
 
