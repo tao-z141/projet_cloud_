@@ -1,56 +1,86 @@
-name: Deploy NYC Taxi Platform
+#!/bin/bash
 
-on:
-  push:
-    branches:
-      - main
+# =========================
+# Deploy NYC Taxi Platform
+# CloudFormation Stacks
+# =========================
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+set -e
 
-    steps:
+REGION="${AWS_DEFAULT_REGION:-eu-west-3}"
+KEY_PAIR="${1:-my-key}"   # Passer le nom de la key pair en argument: ./deploy.sh mon-keypair
 
-      - name: Checkout repo
-        uses: actions/checkout@v3
+echo "========================================"
+echo " NYC Taxi Platform — CloudFormation Deploy"
+echo " Region: $REGION | Key: $KEY_PAIR"
+echo "========================================"
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v3
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-3
+# ORDRE CORRECT : Networking d'abord (exporte MainVPC, PublicSubnetId, KafkaSecurityGroupId)
+# puis Storage, puis Databases (importe MainVPC), puis Kafka (importe MainVPC + SubnetId + SG), puis API
 
-      - name: Deploy Networking
-        run: |
-          aws cloudformation deploy \
-            --stack-name nyc-network \
-            --template-file infrastructure/cloudformation/networking.yaml \
-            --capabilities CAPABILITY_NAMED_IAM
+echo ""
+echo "[1/5] Deploying Networking Stack..."
+aws cloudformation deploy \
+  --stack-name nyc-network \
+  --template-file infrastructure/cloudformation/networking.yaml \
+  --region "$REGION"
+echo "    Networking OK"
 
-      - name: Deploy Storage
-        run: |
-          aws cloudformation deploy \
-            --stack-name nyc-storage \
-            --template-file infrastructure/cloudformation/storage.yaml
+echo ""
+echo "[2/5] Deploying Storage Stack..."
+aws cloudformation deploy \
+  --stack-name nyc-storage \
+  --template-file infrastructure/cloudformation/storage.yaml \
+  --region "$REGION"
+echo "    Storage OK"
 
-      - name: Deploy Databases
-        run: |
-          aws cloudformation deploy \
-            --stack-name nyc-db \
-            --template-file infrastructure/cloudformation/databases.yaml \
-            --capabilities CAPABILITY_NAMED_IAM
+echo ""
+echo "[3/5] Deploying Databases Stack..."
+aws cloudformation deploy \
+  --stack-name nyc-db \
+  --template-file infrastructure/cloudformation/databases.yaml \
+  --capabilities CAPABILITY_IAM \
+  --region "$REGION"
+echo "    Databases OK"
 
-      - name: Deploy Kafka
-        run: |
-          aws cloudformation deploy \
-            --stack-name nyc-kafka \
-            --template-file infrastructure/cloudformation/kafka.yaml \
-            --capabilities CAPABILITY_NAMED_IAM
+echo ""
+echo "[4/5] Deploying Kafka Stack..."
+aws cloudformation deploy \
+  --stack-name nyc-kafka \
+  --template-file infrastructure/cloudformation/kafka.yaml \
+  --parameter-overrides KeyPairName="$KEY_PAIR" \
+  --region "$REGION"
+echo "    Kafka OK"
 
-      - name: Deploy API
-        run: |
-          aws cloudformation deploy \
-            --stack-name nyc-api \
-            --template-file infrastructure/cloudformation/api.yaml \
-            --capabilities CAPABILITY_NAMED_IAM
+echo ""
+echo "[5/5] Deploying API Stack..."
+aws cloudformation deploy \
+  --stack-name nyc-api \
+  --template-file infrastructure/cloudformation/api.yaml \
+  --capabilities CAPABILITY_IAM \
+  --region "$REGION"
+echo "    API OK"
+
+echo ""
+echo "========================================"
+echo " DEPLOYMENT COMPLETE"
+echo "========================================"
+
+# Afficher les outputs clés
+echo ""
+echo "--- Stack Outputs ---"
+aws cloudformation describe-stacks \
+  --stack-name nyc-kafka \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs" \
+  --output table 2>/dev/null || true
+
+aws cloudformation describe-stacks \
+  --stack-name nyc-db \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs" \
+  --output table 2>/dev/null || true
+
+echo ""
+echo "Tip: Update KAFKA_BROKER in streaming/kafka_producer.py and streaming/kafka_consumer.py"
+echo "     with the KafkaPublicIP shown above."
