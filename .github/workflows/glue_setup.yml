@@ -68,24 +68,25 @@ jobs:
 
       - name: Create or update gold_to_rds
         run: |
+          ARGS=$(cat << JSONEOF
+          {
+            "--job-language": "python",
+            "--TempDir": "s3://nyc-taxi-platform/tmp/",
+            "--enable-metrics": "true",
+            "--extra-jars": "s3://nyc-taxi-platform/scripts/postgresql-42.7.3.jar",
+            "--RDS_HOST": "nyc-taxi-db.criow0g6edvj.eu-west-3.rds.amazonaws.com",
+            "--RDS_PASSWORD": "${{ secrets.RDS_PASSWORD }}"
+          }
+          JSONEOF
+          )
           if aws glue get-job --job-name gold_to_rds 2>/dev/null; then
-            aws glue update-job --job-name gold_to_rds --job-update '{
-              "Role": "nyc-taxi-glue-role",
-              "Command": {"Name":"glueetl","ScriptLocation":"s3://nyc-taxi-platform/scripts/gold_to_rds.py","PythonVersion":"3"},
-              "DefaultArguments": {
-                "--job-language": "python",
-                "--TempDir": "s3://nyc-taxi-platform/tmp/",
-                "--enable-metrics": "true",
-                "--extra-jars": "s3://nyc-taxi-platform/scripts/postgresql-42.7.3.jar"
-              },
-              "Connections": {"Connections": ["nyc-rds-connection"]},
-              "GlueVersion": "4.0", "NumberOfWorkers": 2, "WorkerType": "G.1X", "Timeout": 60
-            }'
+            aws glue update-job --job-name gold_to_rds --job-update \
+              "{\"Role\":\"nyc-taxi-glue-role\",\"Command\":{\"Name\":\"glueetl\",\"ScriptLocation\":\"s3://nyc-taxi-platform/scripts/gold_to_rds.py\",\"PythonVersion\":\"3\"},\"DefaultArguments\":$ARGS,\"Connections\":{\"Connections\":[\"nyc-rds-connection\"]},\"GlueVersion\":\"4.0\",\"NumberOfWorkers\":2,\"WorkerType\":\"G.1X\",\"Timeout\":60}"
           else
             aws glue create-job --name gold_to_rds \
               --role nyc-taxi-glue-role \
               --command '{"Name":"glueetl","ScriptLocation":"s3://nyc-taxi-platform/scripts/gold_to_rds.py","PythonVersion":"3"}' \
-              --default-arguments '{"--job-language":"python","--TempDir":"s3://nyc-taxi-platform/tmp/","--enable-metrics":"true","--extra-jars":"s3://nyc-taxi-platform/scripts/postgresql-42.7.3.jar"}' \
+              --default-arguments "$ARGS" \
               --connections '{"Connections":["nyc-rds-connection"]}' \
               --glue-version "4.0" --number-of-workers 2 --worker-type "G.1X" --timeout 60
           fi
