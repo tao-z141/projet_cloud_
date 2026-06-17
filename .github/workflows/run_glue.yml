@@ -1,0 +1,85 @@
+name: Run Glue Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-pipeline:
+    name: Bronze → Silver → Gold → RDS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      # ================================
+      # FONCTION helper pour attendre un job
+      # ================================
+      - name: Run bronze_to_silver
+        id: b2s
+        run: |
+          RUN_ID=$(aws glue start-job-run --job-name bronze_to_silver --query 'JobRunId' --output text)
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "Started: $RUN_ID"
+
+      - name: Wait bronze_to_silver
+        run: |
+          RUN_ID="${{ steps.b2s.outputs.run_id }}"
+          while true; do
+            STATUS=$(aws glue get-job-run --job-name bronze_to_silver --run-id "$RUN_ID" --query 'JobRun.JobRunState' --output text)
+            echo "bronze_to_silver: $STATUS"
+            [ "$STATUS" = "SUCCEEDED" ] && break
+            [[ "$STATUS" =~ ^(FAILED|ERROR|TIMEOUT)$ ]] && echo "FAILED" && exit 1
+            sleep 30
+          done
+
+      - name: Run silver_to_gold
+        id: s2g
+        run: |
+          RUN_ID=$(aws glue start-job-run --job-name silver_to_gold --query 'JobRunId' --output text)
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "Started: $RUN_ID"
+
+      - name: Wait silver_to_gold
+        run: |
+          RUN_ID="${{ steps.s2g.outputs.run_id }}"
+          while true; do
+            STATUS=$(aws glue get-job-run --job-name silver_to_gold --run-id "$RUN_ID" --query 'JobRun.JobRunState' --output text)
+            echo "silver_to_gold: $STATUS"
+            [ "$STATUS" = "SUCCEEDED" ] && break
+            [[ "$STATUS" =~ ^(FAILED|ERROR|TIMEOUT)$ ]] && echo "FAILED" && exit 1
+            sleep 30
+          done
+
+      - name: Run gold_to_rds
+        id: g2r
+        run: |
+          RUN_ID=$(aws glue start-job-run --job-name gold_to_rds --query 'JobRunId' --output text)
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "Started: $RUN_ID"
+
+      - name: Wait gold_to_rds
+        run: |
+          RUN_ID="${{ steps.g2r.outputs.run_id }}"
+          while true; do
+            STATUS=$(aws glue get-job-run --job-name gold_to_rds --run-id "$RUN_ID" --query 'JobRun.JobRunState' --output text)
+            echo "gold_to_rds: $STATUS"
+            [ "$STATUS" = "SUCCEEDED" ] && break
+            [[ "$STATUS" =~ ^(FAILED|ERROR|TIMEOUT)$ ]] && echo "FAILED" && exit 1
+            sleep 30
+          done
+
+      - name: Check outputs
+        run: |
+          echo "=== Silver ==="
+          aws s3 ls s3://nyc-taxi-platform/silver/ --recursive --human-readable | head -20
+          echo "=== Gold ==="
+          aws s3 ls s3://nyc-taxi-platform/gold/ --recursive --human-readable | head -20
+          echo "Pipeline complete!"
