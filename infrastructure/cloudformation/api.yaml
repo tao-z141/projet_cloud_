@@ -24,6 +24,8 @@ Resources:
 
   # =========================
   # LAMBDA — GET /trips
+  # Utilise un layer AWSSDKPandas (anciennement AWSDataWrangler)
+  # ARN du layer officiel AWS pour eu-west-3 Python 3.11
   # =========================
   LambdaGetTrips:
     Type: AWS::Lambda::Function
@@ -34,6 +36,8 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 30
       MemorySize: 256
+      Layers:
+        - !Sub arn:aws:lambda:${AWS::Region}:336392948345:layer:AWSSDKPandas-Python311:17
       Environment:
         Variables:
           BUCKET: nyc-taxi-platform
@@ -92,6 +96,8 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 30
       MemorySize: 256
+      Layers:
+        - !Sub arn:aws:lambda:${AWS::Region}:336392948345:layer:AWSSDKPandas-Python311:17
       Environment:
         Variables:
           BUCKET: nyc-taxi-platform
@@ -136,6 +142,7 @@ Resources:
 
   # =========================
   # LAMBDA — GET /realtime
+  # Pas besoin de pandas ici
   # =========================
   LambdaGetRealtime:
     Type: AWS::Lambda::Function
@@ -152,9 +159,7 @@ Resources:
       Code:
         ZipFile: |
           import json, boto3, os
-          from boto3.dynamodb.conditions import Key
-
-          dynamodb = boto3.resource("dynamodb")
+          dynamodb = boto3.resource("dynamodb", region_name="eu-west-3")
           table = dynamodb.Table(os.environ["DDB_TABLE"])
 
           def lambda_handler(event, context):
@@ -179,9 +184,7 @@ Resources:
     Type: AWS::ApiGateway::RestApi
     Properties:
       Name: nyc-taxi-api
-      Description: NYC Taxi Platform REST API
 
-  # --- /trips ---
   TripsResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -209,7 +212,6 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaxiApi}/*/GET/trips
 
-  # --- /weather ---
   WeatherResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -237,7 +239,6 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaxiApi}/*/GET/weather
 
-  # --- /realtime ---
   RealtimeResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -265,7 +266,6 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaxiApi}/*/GET/realtime
 
-  # --- Deployment ---
   ApiDeployment:
     Type: AWS::ApiGateway::Deployment
     DependsOn:
