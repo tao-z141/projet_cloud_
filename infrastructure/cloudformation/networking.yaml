@@ -17,7 +17,7 @@ Resources:
           Value: nyc-taxi-vpc
 
   # =========================
-  # Public Subnet
+  # Public Subnet (AZ-a) — Kafka EC2
   # =========================
   PublicSubnet:
     Type: AWS::EC2::Subnet
@@ -31,7 +31,22 @@ Resources:
           Value: nyc-public-subnet
 
   # =========================
-  # Security Group (IMPORTANT AJOUT)
+  # Private Subnet (AZ-a) — Glue + RDS
+  # Glue nécessite un subnet SANS route internet directe
+  # =========================
+  PrivateSubnetGlue:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: eu-west-3a
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: nyc-private-subnet-glue
+
+  # =========================
+  # Security Group Kafka
   # =========================
   KafkaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -39,22 +54,39 @@ Resources:
       GroupDescription: Allow Kafka + SSH access
       VpcId: !Ref MainVPC
       SecurityGroupIngress:
-
-        # SSH
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0
-
-        # Kafka
         - IpProtocol: tcp
           FromPort: 9092
           ToPort: 9092
           CidrIp: 0.0.0.0/0
-
       Tags:
         - Key: Name
           Value: nyc-kafka-sg
+
+  # =========================
+  # Security Group Glue
+  # Glue exige une règle self-referencing (trafic entre workers)
+  # =========================
+  GlueSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Glue jobs
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: nyc-glue-sg
+
+  GlueSecurityGroupSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref GlueSecurityGroup
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref GlueSecurityGroup
 
   # =========================
   # Internet Gateway
@@ -69,7 +101,7 @@ Resources:
       InternetGatewayId: !Ref InternetGateway
 
   # =========================
-  # Route Table
+  # Route Table Public
   # =========================
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
@@ -90,11 +122,19 @@ Resources:
       SubnetId: !Ref PublicSubnet
       RouteTableId: !Ref PublicRouteTable
 
-# =========================
-# OUTPUTS
-# =========================
-Outputs:
+  # Route Table Private (pas de route internet — requis par Glue)
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
 
+  PrivateSubnetGlueAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetGlue
+      RouteTableId: !Ref PrivateRouteTable
+
+Outputs:
   VPCId:
     Value: !Ref MainVPC
     Export:
@@ -105,7 +145,17 @@ Outputs:
     Export:
       Name: PublicSubnetId
 
+  PrivateSubnetGlueId:
+    Value: !Ref PrivateSubnetGlue
+    Export:
+      Name: PrivateSubnetGlueId
+
   KafkaSecurityGroupId:
     Value: !Ref KafkaSecurityGroup
     Export:
       Name: KafkaSecurityGroupId
+
+  GlueSecurityGroupId:
+    Value: !Ref GlueSecurityGroup
+    Export:
+      Name: GlueSecurityGroupId
