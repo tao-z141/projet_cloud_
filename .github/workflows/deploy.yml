@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+    # Déclenche le workflow UNIQUEMENT si un fichier CloudFormation change
+    paths:
+      - 'infrastructure/cloudformation/**.yaml'
+      - 'scripts/deploy.sh'
   workflow_dispatch:
     inputs:
       key_pair_name:
@@ -63,16 +67,10 @@ jobs:
       - name: Resolve Key Pair name
         id: keypair
         run: |
-          # Priorité : input manuel > secret > valeur par défaut
           KEY="${{ github.event.inputs.key_pair_name }}"
-          if [ -z "$KEY" ]; then
-            KEY="${{ secrets.KEY_PAIR_NAME }}"
-          fi
-          if [ -z "$KEY" ]; then
-            KEY="nyc-taxi-key"
-          fi
+          if [ -z "$KEY" ]; then KEY="${{ secrets.KEY_PAIR_NAME }}"; fi
+          if [ -z "$KEY" ]; then KEY="nyc-taxi-key"; fi
           echo "name=$KEY" >> $GITHUB_OUTPUT
-          echo "Using Key Pair: $KEY"
 
       - name: Make deploy script executable
         run: chmod +x scripts/deploy.sh
