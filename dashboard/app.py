@@ -54,6 +54,7 @@ def load_realtime():
 # HEADER
 # =========================
 st.title("🚕 NYC Taxi Data Platform")
+st.caption(f"Architecture Médaillon AWS · Mise à jour: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 st.divider()
 
 tab1, tab2, tab3 = st.tabs(["📊 KPIs Batch", "🌤️ Météo & Corrélations", "⚡ Streaming Temps Réel"])
@@ -226,7 +227,7 @@ with tab3:
                 df_rt[col] = pd.to_numeric(df_rt[col], errors="coerce")
 
         st.dataframe(
-            df_rt[["taxi_id", "fare", "speed", "pickup_lat", "pickup_lon", "ingested_at"]],
+            df_rt[[c for c in ["taxi_id", "fare", "speed", "pickup_lat", "pickup_lon", "ingested_at"] if c in df_rt.columns]],
             use_container_width=True
         )
 
