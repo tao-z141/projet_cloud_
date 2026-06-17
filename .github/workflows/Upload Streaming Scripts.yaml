@@ -1,0 +1,33 @@
+name: Upload Streaming Scripts to S3
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'streaming/**.py'
+
+jobs:
+  upload:
+    name: Upload producer + consumer to S3
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      - name: Upload streaming scripts to S3
+        run: |
+          aws s3 cp streaming/kafka_producer.py s3://nyc-taxi-platform/scripts/kafka_producer.py
+          aws s3 cp streaming/kafka_consumer.py s3://nyc-taxi-platform/scripts/kafka_consumer.py
+          echo "Streaming scripts uploaded to S3"
+          echo "Now SSH into EC2 and run:"
+          echo "  bash <(aws s3 cp s3://nyc-taxi-platform/scripts/start_streaming.sh -)"
