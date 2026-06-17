@@ -31,6 +31,32 @@ Resources:
           Value: nyc-public-subnet
 
   # =========================
+  # Security Group (IMPORTANT AJOUT)
+  # =========================
+  KafkaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow Kafka + SSH access
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+
+        # SSH
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+        # Kafka
+        - IpProtocol: tcp
+          FromPort: 9092
+          ToPort: 9092
+          CidrIp: 0.0.0.0/0
+
+      Tags:
+        - Key: Name
+          Value: nyc-kafka-sg
+
+  # =========================
   # Internet Gateway
   # =========================
   InternetGateway:
@@ -65,18 +91,21 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
 
 # =========================
-# OUTPUTS (IMPORTANT pour ImportValue)
+# OUTPUTS
 # =========================
 Outputs:
 
   VPCId:
-    Description: VPC ID
     Value: !Ref MainVPC
     Export:
       Name: MainVPC
 
   PublicSubnetId:
-    Description: Public Subnet ID
     Value: !Ref PublicSubnet
     Export:
       Name: PublicSubnetId
+
+  KafkaSecurityGroupId:
+    Value: !Ref KafkaSecurityGroup
+    Export:
+      Name: KafkaSecurityGroupId
