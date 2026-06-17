@@ -1,19 +1,23 @@
 #!/bin/bash
 
-echo "Deploying Storage Stack..."
+set -e
 
+echo "Deploying Storage Stack..."
 aws cloudformation deploy \
   --stack-name nyc-storage \
   --template-file infrastructure/cloudformation/storage.yaml
 
-echo "Deploying Database Stack..."
-
+echo "Deploying Networking Stack..."
 aws cloudformation deploy \
-  --stack-name nyc-database \
+  --stack-name nyc-network \
+  --template-file infrastructure/cloudformation/networking.yaml
+
+echo "Deploying Database Stack..."
+aws cloudformation deploy \
+  --stack-name nyc-db \
   --template-file infrastructure/cloudformation/databases.yaml
 
 echo "Deploying Kafka Stack..."
-
 aws cloudformation deploy \
   --stack-name nyc-kafka \
   --template-file infrastructure/cloudformation/kafka.yaml \
