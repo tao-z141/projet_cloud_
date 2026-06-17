@@ -12,64 +12,29 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
-
-      # AMI Amazon Linux 2023 récupérée automatiquement via SSM (toujours valide)
       ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
-
       KeyName: !Ref KeyPairName
-
       SubnetId: !ImportValue PublicSubnetId
-
       SecurityGroupIds:
         - !ImportValue KafkaSecurityGroupId
 
       UserData:
-        Fn::Base64: !Sub
-          - |
-            #!/bin/bash
-            yum update -y
-            yum install java-17-amazon-corretto wget -y
-
-            KAFKA_VERSION=3.7.1
-            SCALA_VERSION=2.13
-            KAFKA_TGZ="kafka_$${SCALA_VERSION}-$${KAFKA_VERSION}.tgz"
-
-            cd /tmp
-            wget -q "https://downloads.apache.org/kafka/$${KAFKA_VERSION}/$${KAFKA_TGZ}"
-
-            if [ $? -ne 0 ]; then
-              wget -q "https://archive.apache.org/dist/kafka/$${KAFKA_VERSION}/$${KAFKA_TGZ}"
-            fi
-
-            tar -xzf $${KAFKA_TGZ}
-            mv kafka_$${SCALA_VERSION}-$${KAFKA_VERSION} /opt/kafka
-
-            CLUSTER_UUID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
-
-            /opt/kafka/bin/kafka-storage.sh format \
-              -t $${CLUSTER_UUID} \
-              -c /opt/kafka/config/kraft/server.properties
-
-            /opt/kafka/bin/kafka-server-start.sh -daemon \
-              /opt/kafka/config/kraft/server.properties
-
-            sleep 15
-
-            /opt/kafka/bin/kafka-topics.sh \
-              --create \
-              --topic taxi-stream-events \
-              --bootstrap-server localhost:9092 \
-              --partitions 3 \
-              --replication-factor 1
-
-            echo "Kafka setup complete"
-
-            /opt/aws/bin/cfn-signal -e $? \
-              --stack ${StackName} \
-              --resource KafkaInstance \
-              --region ${Region}
-          - StackName: !Ref AWS::StackName
-            Region: !Ref AWS::Region
+        Fn::Base64:
+          Fn::Join:
+            - "\n"
+            - - "#!/bin/bash"
+              - "yum update -y"
+              - "yum install java-17-amazon-corretto wget -y"
+              - "cd /tmp"
+              - "wget -q https://downloads.apache.org/kafka/3.7.1/kafka_2.13-3.7.1.tgz || wget -q https://archive.apache.org/dist/kafka/3.7.1/kafka_2.13-3.7.1.tgz"
+              - "tar -xzf kafka_2.13-3.7.1.tgz"
+              - "mv kafka_2.13-3.7.1 /opt/kafka"
+              - "UUID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)"
+              - "/opt/kafka/bin/kafka-storage.sh format -t $UUID -c /opt/kafka/config/kraft/server.properties"
+              - "/opt/kafka/bin/kafka-server-start.sh -daemon /opt/kafka/config/kraft/server.properties"
+              - "sleep 15"
+              - "/opt/kafka/bin/kafka-topics.sh --create --topic taxi-stream-events --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1"
+              - !Sub "/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource KafkaInstance --region ${AWS::Region}"
 
       Tags:
         - Key: Name
