@@ -3,8 +3,8 @@ import json
 import time
 import random
 
-# ⚠️ EC2 Kafka public/private IP (à adapter après deploy CloudFormation)
-KAFKA_BROKER = "localhost:9092"
+# EC2 Kafka public/private IP (à adapter après deploy CloudFormation)
+KAFKA_BROKER = "35.180.91.209:9092"
 
 producer = KafkaProducer(
     bootstrap_servers=KAFKA_BROKER,
@@ -33,7 +33,7 @@ def generate_event():
 
 if __name__ == "__main__":
 
-    print("🚕 Starting NYC Taxi Kafka Producer...")
+    print(" Starting NYC Taxi Kafka Producer...")
 
     while True:
         event = generate_event()
