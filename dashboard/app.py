@@ -204,8 +204,7 @@ with tab1:
                 fill="tozeroy", fillcolor="rgba(255,215,0,0.15)",
                 line=dict(color=GOLD, width=2.5), mode="lines"
             ))
-            fig.update_layout(**THEME, height=260, showlegend=False,
-                yaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+            fig.update_layout(**THEME, height=260, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
 
         with c2:
@@ -215,8 +214,7 @@ with tab1:
                 x=df_daily["day"], y=df_daily["total_revenue_usd"],
                 marker_color=NAVY, marker_line_width=0
             ))
-            fig2.update_layout(**THEME, height=260, showlegend=False,
-                yaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+            fig2.update_layout(**THEME, height=260, showlegend=False)
             st.plotly_chart(fig2, use_container_width=True)
 
         c3, c4 = st.columns(2)
@@ -235,8 +233,7 @@ with tab1:
                 line_dash="dash", line_color="#AAAAAA",
                 annotation_text=f"Moy. ${df_daily['avg_fare_usd'].mean():.2f}",
                 annotation_font_color="#888888")
-            fig3.update_layout(**THEME, height=260, showlegend=False,
-                yaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+            fig3.update_layout(**THEME, height=260, showlegend=False)
             st.plotly_chart(fig3, use_container_width=True)
 
         with c4:
@@ -277,8 +274,7 @@ with tab1:
                 mode="lines", line=dict(color=CORAL, width=2),
                 fill="tozeroy", fillcolor="rgba(255,107,107,0.08)"
             ))
-            fig5.update_layout(**THEME, height=200, showlegend=False,
-                yaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+            fig5.update_layout(**THEME, height=200, showlegend=False)
             st.plotly_chart(fig5, use_container_width=True)
 
         with c6:
@@ -289,8 +285,7 @@ with tab1:
                 mode="lines", line=dict(color=GREEN, width=2),
                 fill="tozeroy", fillcolor="rgba(6,214,160,0.08)"
             ))
-            fig6.update_layout(**THEME, height=200, showlegend=False,
-                yaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+            fig6.update_layout(**THEME, height=200, showlegend=False)
             st.plotly_chart(fig6, use_container_width=True)
 
     else:
@@ -323,8 +318,7 @@ with tab2:
         ))
         fig_t.add_hline(y=0, line_color="#CCCCCC", line_dash="dash",
             annotation_text="0°C", annotation_font_color="#AAAAAA")
-        fig_t.update_layout(**THEME, height=220, showlegend=False,
-            yaxis=dict(title="°C", gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+        fig_t.update_layout(**THEME, height=220, showlegend=False, yaxis_title="°C")
         st.plotly_chart(fig_t, use_container_width=True)
 
         if not df_daily2.empty and "date" in df_weather.columns:
@@ -346,8 +340,7 @@ with tab2:
                         labels={"avg_temp": "Température moy. (°C)", "nb_trips": "Nb courses"},
                         color_discrete_sequence=[NAVY])
                     fig_c1.update_traces(marker=dict(size=10, opacity=0.7))
-                    fig_c1.update_layout(**THEME, title="🌡️ Température vs Courses", height=290,
-                        yaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+                    fig_c1.update_layout(**THEME, title="🌡️ Température vs Courses", height=290)
                     st.plotly_chart(fig_c1, use_container_width=True)
 
                 with c2:
@@ -356,8 +349,7 @@ with tab2:
                         labels={"total_precip": "Précipitations (mm)", "nb_trips": "Nb courses"},
                         color_discrete_sequence=[TEAL])
                     fig_c2.update_traces(marker=dict(size=10, opacity=0.7))
-                    fig_c2.update_layout(**THEME, title="🌧️ Précipitations vs Courses", height=290,
-                        yaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+                    fig_c2.update_layout(**THEME, title="🌧️ Précipitations vs Courses", height=290)
                     st.plotly_chart(fig_c2, use_container_width=True)
     else:
         st.warning("Aucune donnée météo. Relance l'ingestion puis le pipeline Glue.")
@@ -418,8 +410,7 @@ with tab3:
                 fig_fare.add_vline(x=55, line_dash="dash", line_color=CORAL,
                     annotation_text="Seuil $55", annotation_font_color=CORAL)
                 fig_fare.update_layout(**THEME, height=250, showlegend=False,
-                    xaxis=dict(title="Montant ($)", gridcolor="#EFEFEF", linecolor="#DDDDDD"),
-                    yaxis=dict(title="Fréquence", gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+                    xaxis_title="Montant ($)", yaxis_title="Fréquence")
                 st.plotly_chart(fig_fare, use_container_width=True)
 
         with c2:
@@ -437,8 +428,7 @@ with tab3:
                     textfont=dict(color="#333333", size=11)
                 ))
                 fig_b.update_layout(**THEME, height=250, showlegend=False,
-                    xaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"),
-                    yaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+                    xaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"))
                 st.plotly_chart(fig_b, use_container_width=True)
 
         c3, c4 = st.columns(2)
@@ -484,8 +474,7 @@ with tab3:
                     textfont=dict(color="#333333", size=11)
                 ))
                 fig_rev.update_layout(**THEME, height=250, showlegend=False,
-                    xaxis=dict(title="Montant moyen ($)", gridcolor="#EFEFEF", linecolor="#DDDDDD"),
-                    yaxis=dict(gridcolor="#FAFBFC", linecolor="#DDDDDD", tickfont=dict(size=11)))
+                    xaxis_title="Montant moyen ($)")
                 st.plotly_chart(fig_rev, use_container_width=True)
     else:
         st.markdown("""
