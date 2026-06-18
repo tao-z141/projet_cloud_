@@ -7,11 +7,14 @@ from datetime import datetime
 S3_BUCKET = "nyc-taxi-platform"
 s3 = boto3.client("s3")
 
+# Q1 2024 vs Q1 2025 — comparaison annuelle
 MONTHS = [
     "2024-01",
     "2024-02",
     "2024-03",
-    "2024-04"
+    "2025-01",
+    "2025-02",
+    "2025-03",
 ]
 
 def fetch_taxi_data(month):
@@ -34,6 +37,9 @@ def upload_to_s3(df, month):
 
 if __name__ == "__main__":
     for month in MONTHS:
-        df = fetch_taxi_data(month)
-        upload_to_s3(df, month)
-    print("All months ingested!")
+        try:
+            df = fetch_taxi_data(month)
+            upload_to_s3(df, month)
+        except Exception as e:
+            print(f"  ERROR {month}: {e}")
+    print("Done!")
