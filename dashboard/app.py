@@ -17,11 +17,11 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    .stApp { background-color: #F8F9FC; color: #1A1A2E; }
+    .stApp { background-color: #F0F2F6; color: #1A1A2E; }
     .main .block-container { padding-top: 1.5rem; padding-bottom: 1rem; max-width: 1400px; }
 
     .nyc-header {
-        background: linear-gradient(135deg, #1A1A2E 0%, #16213E 60%, #0F3460 100%);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         padding: 1.8rem 2.5rem;
         border-radius: 16px;
         margin-bottom: 1.5rem;
@@ -30,21 +30,20 @@ st.markdown("""
         gap: 1.2rem;
     }
     .nyc-header h1 {
-        color: #FFD700 !important;
+        color: #FFFFFF !important;
         font-size: 1.9rem !important;
         font-weight: 800 !important;
         margin: 0 !important;
         letter-spacing: -0.5px;
     }
-    .nyc-header p { color: #AAB4C8 !important; margin: 0.2rem 0 0 0 !important; font-size: 0.88rem !important; }
 
     .section-title {
-        color: #1A1A2E;
-        font-size: 0.85rem;
+        color: #667eea;
+        font-size: 0.82rem;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 1.5px;
-        border-left: 3px solid #FFD700;
+        border-left: 3px solid #667eea;
         padding-left: 0.7rem;
         margin: 1.2rem 0 0.8rem 0;
     }
@@ -54,20 +53,20 @@ st.markdown("""
         border-radius: 12px;
         padding: 0.3rem;
         gap: 0.2rem;
-        border: 1px solid #E8ECF0;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        border: 1px solid #E0E4EE;
+        box-shadow: 0 2px 10px rgba(102,126,234,0.08);
     }
     .stTabs [data-baseweb="tab"] {
         background: transparent;
-        color: #666;
+        color: #888;
         border-radius: 10px;
         font-weight: 600;
         font-size: 0.88rem;
         padding: 0.55rem 1.4rem;
     }
     .stTabs [aria-selected="true"] {
-        background: #1A1A2E !important;
-        color: #FFD700 !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: #FFFFFF !important;
     }
 
     .alert-box {
@@ -93,14 +92,14 @@ st.markdown("""
 
     [data-testid="metric-container"] {
         background: #FFFFFF;
-        border: 1px solid #E8ECF0;
-        border-top: 3px solid #FFD700;
+        border: 1px solid #E0E4EE;
+        border-top: 3px solid #667eea;
         border-radius: 12px;
         padding: 1rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        box-shadow: 0 2px 10px rgba(102,126,234,0.06);
     }
     [data-testid="metric-container"] label {
-        color: #888 !important;
+        color: #999 !important;
         font-size: 0.75rem !important;
         text-transform: uppercase;
         letter-spacing: 1px;
@@ -126,12 +125,12 @@ THEME = dict(
     yaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD", tickcolor="#AAAAAA"),
     margin=dict(t=40, b=30, l=50, r=20)
 )
-GOLD = "#FFD700"
-NAVY = "#1A1A2E"
+GOLD = "#667eea"
+NAVY = "#764ba2"
 TEAL = "#00B4D8"
 CORAL = "#FF6B6B"
 GREEN = "#06D6A0"
-PURPLE = "#7B2FBE"
+PURPLE = "#F093FB"
 
 BUCKET = "nyc-taxi-platform"
 API_URL = "https://thg365gege.execute-api.eu-west-3.amazonaws.com/prod"
@@ -165,7 +164,6 @@ st.markdown("""
     <div style="font-size:2.8rem">🚕</div>
     <div>
         <h1>NYC Taxi Data Platform</h1>
-        <p>New York City · Yellow Taxi Trips · Janvier 2024</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
