@@ -427,8 +427,7 @@ with tab3:
                     textposition="outside",
                     textfont=dict(color="#333333", size=11)
                 ))
-                fig_b.update_layout(**THEME, height=250, showlegend=False,
-                    xaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD"))
+                fig_b.update_layout(**THEME, height=250, showlegend=False)
                 st.plotly_chart(fig_b, use_container_width=True)
 
         c3, c4 = st.columns(2)
