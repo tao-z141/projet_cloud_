@@ -187,8 +187,8 @@ with tab1:
     if not df_daily.empty:
         df_daily["day"] = pd.to_datetime(df_daily["day"])
         df_daily = df_daily[
-            (df_daily["day"] >= "2024-01-01") &
-            (df_daily["day"] <= "2025-03-31")
+            (df_daily["day"].dt.month <= 3) &
+            (df_daily["day"].dt.year.isin([2024, 2025]))
         ].sort_values("day")
 
         df_daily["year"]      = df_daily["day"].dt.year.astype(str)
@@ -196,7 +196,7 @@ with tab1:
         df_daily["month_lbl"] = df_daily["month_num"].map(MONTH_LABELS)
 
         # KPIs globaux
-        st.markdown('<div class="section-title">KPIs Globaux — Q1 2024 vs Q1 2025</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">KPIs Globaux — Jan·Fév·Mar  2024 vs 2025</div>', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("🚗 Total Courses", f"{int(df_daily['nb_trips'].sum()):,}")
         k2.metric("💰 Tarif Moyen", f"${df_daily['avg_fare_usd'].mean():.2f}")
@@ -358,7 +358,7 @@ with tab2:
         df_daily2  = load_s3_parquet("gold/kpi_daily/")
 
     if not df_weather.empty and "temperature_2m" in df_weather.columns:
-        st.markdown('<div class="section-title">Météo NYC — Q1 2024 & Q1 2025</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Météo NYC — Jan·Fév·Mar  2024 & 2025</div>', unsafe_allow_html=True)
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("🌡️ Température moy.", f"{df_weather['temperature_2m'].mean():.1f}°C")
         m2.metric("🔴 Max.", f"{df_weather['temperature_2m'].max():.1f}°C")
