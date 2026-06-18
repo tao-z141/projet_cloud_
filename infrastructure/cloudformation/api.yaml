@@ -164,14 +164,19 @@ Resources:
 
           def lambda_handler(event, context):
               try:
-                  response = table.scan(Limit=50)
-                  items = response.get("Items", [])
+                  items = []
+                  response = table.scan()
+                  items.extend(response.get("Items", []))
+                  while "LastEvaluatedKey" in response:
+                      response = table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+                      items.extend(response.get("Items", []))
+                  
                   return {
                       "statusCode": 200,
                       "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
                       "body": json.dumps({
                           "events_count": len(items),
-                          "latest_events": items[:10]
+                          "latest_events": items
                       }, default=str)
                   }
               except Exception as e:
