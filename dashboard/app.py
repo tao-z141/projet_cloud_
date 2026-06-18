@@ -318,8 +318,7 @@ with tab1:
             ))
         fig5.update_layout(**THEME, height=260, yaxis_title="Nb courses",
             legend=dict(bgcolor="rgba(0,0,0,0)"),
-            xaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD",
-                tickformat="%b", tickcolor="#AAAAAA"))
+            xaxis_tickformat="%b")
         st.plotly_chart(fig5, use_container_width=True)
 
         # Top zones
