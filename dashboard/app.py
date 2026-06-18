@@ -116,7 +116,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Light modern theme for Plotly
 THEME = dict(
     paper_bgcolor="#FFFFFF",
     plot_bgcolor="#FAFBFC",
@@ -125,17 +124,27 @@ THEME = dict(
     yaxis=dict(gridcolor="#EFEFEF", linecolor="#DDDDDD", tickcolor="#AAAAAA"),
     margin=dict(t=40, b=30, l=50, r=20)
 )
-GOLD = "#667eea"
-NAVY = "#764ba2"
-TEAL = "#00B4D8"
-CORAL = "#FF6B6B"
-GREEN = "#06D6A0"
-PURPLE = "#F093FB"
 
-BUCKET = "nyc-taxi-platform"
-API_URL = "https://thg365gege.execute-api.eu-west-3.amazonaws.com/prod"
+VIOLET = "#667eea"
+PURPLE = "#764ba2"
+TEAL   = "#00B4D8"
+CORAL  = "#FF6B6B"
+GREEN  = "#06D6A0"
+ORANGE = "#FF9A3C"
+
+# Couleurs par mois
+MONTH_COLORS = {
+    "Janvier": VIOLET,
+    "Février": TEAL,
+    "Mars":    CORAL,
+    "Avril":   GREEN
+}
+MONTH_LABELS = {1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril"}
+
+BUCKET    = "nyc-taxi-platform"
+API_URL   = "https://thg365gege.execute-api.eu-west-3.amazonaws.com/prod"
 AWS_REGION = "eu-west-3"
-AWS_KEY = st.secrets.get("AWS_ACCESS_KEY_ID", os.environ.get("AWS_ACCESS_KEY_ID"))
+AWS_KEY    = st.secrets.get("AWS_ACCESS_KEY_ID", os.environ.get("AWS_ACCESS_KEY_ID"))
 AWS_SECRET = st.secrets.get("AWS_SECRET_ACCESS_KEY", os.environ.get("AWS_SECRET_ACCESS_KEY"))
 
 @st.cache_data(ttl=300)
@@ -162,9 +171,7 @@ def load_realtime():
 st.markdown("""
 <div class="nyc-header">
     <div style="font-size:2.8rem">🚕</div>
-    <div>
-        <h1>NYC Taxi Data Platform</h1>
-    </div>
+    <div><h1>NYC Taxi Data Platform</h1></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -175,129 +182,169 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ============================================================
-# TAB 1
+# TAB 1 — PERFORMANCE OPÉRATIONNELLE
 # ============================================================
 with tab1:
     with st.spinner(""):
         df_daily = load_s3_parquet("gold/kpi_daily/")
-        df_zone = load_s3_parquet("gold/kpi_zone/")
+        df_zone  = load_s3_parquet("gold/kpi_zone/")
 
     if not df_daily.empty:
         df_daily["day"] = pd.to_datetime(df_daily["day"])
-        df_daily = df_daily[(df_daily["day"] >= "2024-01-01") & (df_daily["day"] <= "2024-01-31")].sort_values("day")
+        df_daily = df_daily[
+            (df_daily["day"] >= "2024-01-01") &
+            (df_daily["day"] <= "2024-04-30")
+        ].sort_values("day")
 
-        st.markdown('<div class="section-title">KPIs Janvier 2024</div>', unsafe_allow_html=True)
+        # Ajouter colonne mois
+        df_daily["month_num"]  = df_daily["day"].dt.month
+        df_daily["month_name"] = df_daily["month_num"].map(MONTH_LABELS)
+
+        # KPIs globaux
+        st.markdown('<div class="section-title">KPIs Globaux — Jan → Avr 2024</div>', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("🚗 Total Courses", f"{int(df_daily['nb_trips'].sum()):,}")
         k2.metric("💰 Tarif Moyen", f"${df_daily['avg_fare_usd'].mean():.2f}")
         k3.metric("📏 Distance Moy.", f"{df_daily['avg_distance_km'].mean():.2f} km")
-        k4.metric("💵 Revenus Totaux", f"${df_daily['total_revenue_usd'].sum()/1e6:.2f}M")
+        k4.metric("💵 Revenus Totaux", f"${df_daily['total_revenue_usd'].sum()/1e6:.1f}M")
 
         st.markdown("<br>", unsafe_allow_html=True)
+
+        # --- Agrégats par mois ---
+        df_month = df_daily.groupby(["month_num", "month_name"]).agg(
+            nb_trips=("nb_trips", "sum"),
+            total_revenue=("total_revenue_usd", "sum"),
+            avg_fare=("avg_fare_usd", "mean"),
+            avg_distance=("avg_distance_km", "mean")
+        ).reset_index().sort_values("month_num")
+
         c1, c2 = st.columns(2)
 
         with c1:
-            st.markdown('<div class="section-title">Volume de courses / jour</div>', unsafe_allow_html=True)
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=df_daily["day"], y=df_daily["nb_trips"],
-                fill="tozeroy", fillcolor="rgba(255,215,0,0.15)",
-                line=dict(color=GOLD, width=2.5), mode="lines"
-            ))
-            fig.update_layout(**THEME, height=260, showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.markdown('<div class="section-title">Courses par mois</div>', unsafe_allow_html=True)
+            fig1 = go.Figure()
+            for _, row in df_month.iterrows():
+                fig1.add_trace(go.Bar(
+                    x=[row["month_name"]],
+                    y=[row["nb_trips"]],
+                    name=row["month_name"],
+                    marker_color=MONTH_COLORS.get(row["month_name"], VIOLET),
+                    marker_line_width=0,
+                    text=[f"{int(row['nb_trips']):,}"],
+                    textposition="outside",
+                    textfont=dict(size=11, color="#333")
+                ))
+            fig1.update_layout(**THEME, height=300, showlegend=False, barmode="group",
+                yaxis_title="Nb courses")
+            st.plotly_chart(fig1, use_container_width=True)
 
         with c2:
-            st.markdown('<div class="section-title">Revenus journaliers ($)</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Revenus totaux par mois ($M)</div>', unsafe_allow_html=True)
             fig2 = go.Figure()
-            fig2.add_trace(go.Bar(
-                x=df_daily["day"], y=df_daily["total_revenue_usd"],
-                marker_color=NAVY, marker_line_width=0
-            ))
-            fig2.update_layout(**THEME, height=260, showlegend=False)
+            for _, row in df_month.iterrows():
+                fig2.add_trace(go.Bar(
+                    x=[row["month_name"]],
+                    y=[row["total_revenue"] / 1e6],
+                    name=row["month_name"],
+                    marker_color=MONTH_COLORS.get(row["month_name"], VIOLET),
+                    marker_line_width=0,
+                    text=[f"${row['total_revenue']/1e6:.1f}M"],
+                    textposition="outside",
+                    textfont=dict(size=11, color="#333")
+                ))
+            fig2.update_layout(**THEME, height=300, showlegend=False, barmode="group",
+                yaxis_title="Revenus ($M)")
             st.plotly_chart(fig2, use_container_width=True)
 
         c3, c4 = st.columns(2)
 
         with c3:
-            st.markdown('<div class="section-title">Évolution du tarif moyen</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Tarif moyen par mois ($)</div>', unsafe_allow_html=True)
             fig3 = go.Figure()
             fig3.add_trace(go.Scatter(
-                x=df_daily["day"], y=df_daily["avg_fare_usd"],
-                mode="lines+markers",
-                line=dict(color=TEAL, width=2),
-                marker=dict(color=TEAL, size=5),
-                fill="tozeroy", fillcolor="rgba(0,180,216,0.08)"
+                x=df_month["month_name"].values,
+                y=df_month["avg_fare"].values,
+                mode="lines+markers+text",
+                line=dict(color=VIOLET, width=3),
+                marker=dict(size=12, color=[MONTH_COLORS.get(m, VIOLET) for m in df_month["month_name"]],
+                    line=dict(color="#FFFFFF", width=2)),
+                text=[f"${v:.2f}" for v in df_month["avg_fare"].values],
+                textposition="top center",
+                textfont=dict(size=11, color="#333")
             ))
-            fig3.add_hline(y=df_daily["avg_fare_usd"].mean(),
-                line_dash="dash", line_color="#AAAAAA",
-                annotation_text=f"Moy. ${df_daily['avg_fare_usd'].mean():.2f}",
-                annotation_font_color="#888888")
-            fig3.update_layout(**THEME, height=260, showlegend=False)
+            fig3.update_layout(**THEME, height=280, showlegend=False, yaxis_title="Tarif moyen ($)")
             st.plotly_chart(fig3, use_container_width=True)
 
         with c4:
-            st.markdown('<div class="section-title">Top 15 Zones — Revenus</div>', unsafe_allow_html=True)
-            if not df_zone.empty:
-                df_top = df_zone.sort_values("total_revenue_usd", ascending=False).head(15).copy()
-                label_col = "zone_name" if "zone_name" in df_top.columns else "zone_id"
-                df_top["label"] = df_top[label_col].astype(str).str[:22]
+            st.markdown('<div class="section-title">Distance moyenne par mois (km)</div>', unsafe_allow_html=True)
+            fig4 = go.Figure()
+            fig4.add_trace(go.Scatter(
+                x=df_month["month_name"].values,
+                y=df_month["avg_distance"].values,
+                mode="lines+markers+text",
+                line=dict(color=TEAL, width=3),
+                marker=dict(size=12, color=[MONTH_COLORS.get(m, TEAL) for m in df_month["month_name"]],
+                    line=dict(color="#FFFFFF", width=2)),
+                text=[f"{v:.2f} km" for v in df_month["avg_distance"].values],
+                textposition="top center",
+                textfont=dict(size=11, color="#333")
+            ))
+            fig4.update_layout(**THEME, height=280, showlegend=False, yaxis_title="Distance (km)")
+            st.plotly_chart(fig4, use_container_width=True)
 
-                fig4 = go.Figure(go.Bar(
-                    x=df_top["total_revenue_usd"].values / 1000,
-                    y=df_top["label"].values,
-                    orientation="h",
-                    marker=dict(
-                        color=list(range(len(df_top))),
-                        colorscale=[[0, "#E8F4FD"], [1, NAVY]],
-                        line_width=0
-                    )
-                ))
-                fig4.update_layout(
-                    paper_bgcolor="#FFFFFF",
-                    plot_bgcolor="#FAFBFC",
-                    font=dict(color="#333333", family="Arial"),
-                    margin=dict(t=10, b=30, l=10, r=20),
-                    height=260,
-                    showlegend=False,
-                    xaxis=dict(title="Revenus ($K)", gridcolor="#EFEFEF", linecolor="#DDDDDD"),
-                    yaxis=dict(gridcolor="#FAFBFC", linecolor="#DDDDDD", tickfont=dict(size=10))
-                )
-                st.plotly_chart(fig4, use_container_width=True)
-
-        c5, c6 = st.columns(2)
-        with c5:
-            st.markdown('<div class="section-title">Passagers moyens / course</div>', unsafe_allow_html=True)
-            fig5 = go.Figure()
+        # --- Courbe quotidienne colorée par mois ---
+        st.markdown('<div class="section-title">Volume de courses quotidien — comparaison par mois</div>', unsafe_allow_html=True)
+        fig5 = go.Figure()
+        for month_num, group in df_daily.groupby("month_num"):
+            month_name = MONTH_LABELS.get(month_num, str(month_num))
             fig5.add_trace(go.Scatter(
-                x=df_daily["day"], y=df_daily["avg_passengers"],
-                mode="lines", line=dict(color=CORAL, width=2),
-                fill="tozeroy", fillcolor="rgba(255,107,107,0.08)"
+                x=group["day"],
+                y=group["nb_trips"],
+                mode="lines",
+                name=month_name,
+                line=dict(color=MONTH_COLORS.get(month_name, VIOLET), width=2),
             ))
-            fig5.update_layout(**THEME, height=200, showlegend=False)
-            st.plotly_chart(fig5, use_container_width=True)
+        fig5.update_layout(**THEME, height=280, yaxis_title="Nb courses",
+            legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#333")))
+        st.plotly_chart(fig5, use_container_width=True)
 
-        with c6:
-            st.markdown('<div class="section-title">Distance moyenne / course (km)</div>', unsafe_allow_html=True)
-            fig6 = go.Figure()
-            fig6.add_trace(go.Scatter(
-                x=df_daily["day"], y=df_daily["avg_distance_km"],
-                mode="lines", line=dict(color=GREEN, width=2),
-                fill="tozeroy", fillcolor="rgba(6,214,160,0.08)"
+        # --- Top zones ---
+        if not df_zone.empty:
+            st.markdown('<div class="section-title">Top 15 Zones — Revenus cumulés</div>', unsafe_allow_html=True)
+            df_top = df_zone.sort_values("total_revenue_usd", ascending=False).head(15).copy()
+            label_col = "zone_name" if "zone_name" in df_top.columns else "zone_id"
+            df_top["label"] = df_top[label_col].astype(str).str[:25]
+
+            fig6 = go.Figure(go.Bar(
+                x=df_top["total_revenue_usd"].values / 1000,
+                y=df_top["label"].values,
+                orientation="h",
+                marker=dict(
+                    color=list(range(len(df_top))),
+                    colorscale=[[0, "#E8EDFF"], [1, VIOLET]],
+                    line_width=0
+                )
             ))
-            fig6.update_layout(**THEME, height=200, showlegend=False)
+            fig6.update_layout(
+                paper_bgcolor="#FFFFFF", plot_bgcolor="#FAFBFC",
+                font=dict(color="#333333", family="Arial"),
+                margin=dict(t=10, b=30, l=10, r=20),
+                height=320, showlegend=False,
+                xaxis=dict(title="Revenus ($K)", gridcolor="#EFEFEF", linecolor="#DDDDDD"),
+                yaxis=dict(gridcolor="#FAFBFC", linecolor="#DDDDDD", tickfont=dict(size=10))
+            )
             st.plotly_chart(fig6, use_container_width=True)
 
     else:
-        st.warning("Aucune donnée Gold disponible.")
+        st.warning("Aucune donnée Gold disponible. Lance le pipeline Glue.")
 
 # ============================================================
-# TAB 2
+# TAB 2 — IMPACT MÉTÉO
 # ============================================================
 with tab2:
     with st.spinner(""):
         df_weather = load_s3_parquet("silver/weather_clean/")
-        df_daily2 = load_s3_parquet("gold/kpi_daily/")
+        df_daily2  = load_s3_parquet("gold/kpi_daily/")
 
     if not df_weather.empty and "temperature_2m" in df_weather.columns:
         st.markdown('<div class="section-title">Météo NYC — Janvier 2024</div>', unsafe_allow_html=True)
@@ -309,21 +356,13 @@ with tab2:
             m4.metric("🌧️ Précipitations", f"{df_weather['precipitation'].sum():.0f} mm")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Température horaire — Janvier 2024</div>', unsafe_allow_html=True)
-        fig_t = go.Figure()
-        fig_t.add_trace(go.Scatter(
-            x=df_weather["datetime"], y=df_weather["temperature_2m"],
-            mode="lines", line=dict(color=CORAL, width=1.5),
-            fill="tozeroy", fillcolor="rgba(255,107,107,0.08)"
-        ))
-        fig_t.add_hline(y=0, line_color="#CCCCCC", line_dash="dash",
-            annotation_text="0°C", annotation_font_color="#AAAAAA")
-        fig_t.update_layout(**THEME, height=220, showlegend=False, yaxis_title="°C")
-        st.plotly_chart(fig_t, use_container_width=True)
 
         if not df_daily2.empty and "date" in df_weather.columns:
             df_daily2["day"] = pd.to_datetime(df_daily2["day"])
-            df_daily2 = df_daily2[(df_daily2["day"] >= "2024-01-01") & (df_daily2["day"] <= "2024-01-31")]
+            df_daily2 = df_daily2[
+                (df_daily2["day"] >= "2024-01-01") &
+                (df_daily2["day"] <= "2024-04-30")
+            ]
             df_weather["date"] = pd.to_datetime(df_weather["date"])
             df_w_daily = df_weather.groupby("date").agg(
                 avg_temp=("temperature_2m", "mean"),
@@ -332,30 +371,29 @@ with tab2:
             df_corr = df_daily2.merge(df_w_daily, left_on="day", right_on="date", how="inner")
 
             if not df_corr.empty:
-                st.markdown('<div class="section-title">Corrélations Météo → Demande</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-title">Corrélations Météo → Demande de Taxis</div>', unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
                 with c1:
                     fig_c1 = px.scatter(df_corr, x="avg_temp", y="nb_trips",
                         trendline="ols",
                         labels={"avg_temp": "Température moy. (°C)", "nb_trips": "Nb courses"},
-                        color_discrete_sequence=[NAVY])
-                    fig_c1.update_traces(marker=dict(size=10, opacity=0.7))
-                    fig_c1.update_layout(**THEME, title="🌡️ Température vs Courses", height=290)
+                        color_discrete_sequence=[VIOLET])
+                    fig_c1.update_traces(marker=dict(size=9, opacity=0.65))
+                    fig_c1.update_layout(**THEME, title="🌡️ Température vs Courses", height=300)
                     st.plotly_chart(fig_c1, use_container_width=True)
-
                 with c2:
                     fig_c2 = px.scatter(df_corr, x="total_precip", y="nb_trips",
                         trendline="ols",
                         labels={"total_precip": "Précipitations (mm)", "nb_trips": "Nb courses"},
                         color_discrete_sequence=[TEAL])
-                    fig_c2.update_traces(marker=dict(size=10, opacity=0.7))
-                    fig_c2.update_layout(**THEME, title="🌧️ Précipitations vs Courses", height=290)
+                    fig_c2.update_traces(marker=dict(size=9, opacity=0.65))
+                    fig_c2.update_layout(**THEME, title="🌧️ Précipitations vs Courses", height=300)
                     st.plotly_chart(fig_c2, use_container_width=True)
     else:
-        st.warning("Aucune donnée météo. Relance l'ingestion puis le pipeline Glue.")
+        st.warning("Aucune donnée météo.")
 
 # ============================================================
-# TAB 3
+# TAB 3 — STREAMING TEMPS RÉEL
 # ============================================================
 with tab3:
     col_refresh, _ = st.columns([1, 6])
@@ -363,9 +401,9 @@ with tab3:
         if st.button("🔄 Rafraîchir", use_container_width=True):
             st.cache_data.clear()
 
-    realtime = load_realtime()
+    realtime     = load_realtime()
     total_events = realtime.get("events_count", 0)
-    events = realtime.get("latest_events", [])
+    events       = realtime.get("latest_events", [])
 
     if events:
         df_rt = pd.DataFrame(events)
@@ -374,13 +412,12 @@ with tab3:
                 df_rt[c] = pd.to_numeric(df_rt[c], errors="coerce")
 
         st.markdown('<div class="section-title">KPIs Temps Réel</div>', unsafe_allow_html=True)
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("📡 Événements", f"{total_events:,}")
+        k1, k2, k3 = st.columns(3)
         if "total_amount" in df_rt.columns:
-            k2.metric("💰 Montant moyen", f"${df_rt['total_amount'].mean():.2f}")
-            k3.metric("💵 Revenu estimé", f"${df_rt['total_amount'].sum():.0f}")
+            k1.metric("💰 Montant moyen", f"${df_rt['total_amount'].mean():.2f}")
+            k2.metric("💵 Revenu estimé", f"${df_rt['total_amount'].sum():.0f}")
         if "trip_distance" in df_rt.columns:
-            k4.metric("📏 Distance moy.", f"{df_rt['trip_distance'].mean():.2f} km")
+            k3.metric("📏 Distance moy.", f"{df_rt['trip_distance'].mean():.2f} km")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -402,7 +439,7 @@ with tab3:
                 fig_fare.add_trace(go.Histogram(
                     x=df_rt["total_amount"].dropna(),
                     nbinsx=12,
-                    marker_color=NAVY,
+                    marker_color=VIOLET,
                     marker_line_color="#FFFFFF",
                     marker_line_width=1,
                     opacity=0.85
@@ -421,7 +458,7 @@ with tab3:
                 fig_b = go.Figure(go.Bar(
                     x=borough_data["borough"].values,
                     y=borough_data["count"].values,
-                    marker_color=[NAVY, TEAL, CORAL, GREEN, PURPLE][:len(borough_data)],
+                    marker_color=[VIOLET, TEAL, CORAL, GREEN, ORANGE][:len(borough_data)],
                     marker_line_width=0,
                     text=borough_data["count"].values,
                     textposition="outside",
@@ -441,7 +478,7 @@ with tab3:
                     labels=pay_data["type"].values,
                     values=pay_data["count"].values,
                     hole=0.55,
-                    marker_colors=[NAVY, TEAL, CORAL, GREEN],
+                    marker_colors=[VIOLET, TEAL, CORAL, GREEN],
                     textfont=dict(size=12)
                 ))
                 fig_pie.add_annotation(
@@ -465,7 +502,7 @@ with tab3:
                     orientation="h",
                     marker=dict(
                         color=list(range(len(rev_b))),
-                        colorscale=[[0, "#E8F4FD"], [1, NAVY]],
+                        colorscale=[[0, "#E8EDFF"], [1, VIOLET]],
                         line_width=0
                     ),
                     text=[f"${v:.1f}" for v in rev_b["avg"].values],
