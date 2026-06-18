@@ -385,32 +385,8 @@ with tab2:
                 df_corr["year"] = df_corr["day"].dt.year.astype(str)
 
                 # Température par mois comparée 2024 vs 2025
-                st.markdown('<div class="section-title">Température moyenne par mois — 2024 vs 2025</div>', unsafe_allow_html=True)
                 df_corr["month_num"] = df_corr["day"].dt.month
                 df_corr["month_lbl"] = df_corr["month_num"].map(MONTH_LABELS)
-                df_temp_month = df_corr.groupby(["year", "month_num", "month_lbl"]).agg(
-                    avg_temp=("avg_temp", "mean"),
-                    nb_trips=("nb_trips", "sum")
-                ).reset_index().sort_values(["month_num", "year"])
-
-                fig_tm = go.Figure()
-                for year, color in YEAR_COLORS.items():
-                    d = df_temp_month[df_temp_month["year"] == year]
-                    if d.empty: continue
-                    fig_tm.add_trace(go.Bar(
-                        x=d["month_lbl"].values,
-                        y=d["avg_temp"].values,
-                        name=year,
-                        marker_color=color,
-                        marker_line_width=0,
-                        text=[f"{v:.1f}°C" for v in d["avg_temp"].values],
-                        textposition="outside",
-                        textfont=dict(size=10, color="#333")
-                    ))
-                fig_tm.update_layout(**THEME, height=280, barmode="group",
-                    legend=dict(bgcolor="rgba(0,0,0,0)"), yaxis_title="Température moy. (°C)")
-                st.plotly_chart(fig_tm, use_container_width=True)
-
                 st.markdown('<div class="section-title">Corrélations Météo → Demande</div>', unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
                 with c1:
