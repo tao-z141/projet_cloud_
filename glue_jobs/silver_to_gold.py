@@ -59,7 +59,7 @@ kpi_daily = spark.sql("""
         ROUND(SUM(fare_amount), 2)      AS total_revenue_usd,
         ROUND(AVG(passenger_count), 2)  AS avg_passengers
     FROM taxi
-    WHERE DATE(tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2024-04-30'
+    WHERE DATE(tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2025-03-31'
     GROUP BY DATE(tpep_pickup_datetime)
     ORDER BY day
 """)
@@ -81,7 +81,7 @@ kpi_zone = spark.sql("""
         ROUND(SUM(t.fare_amount), 2)    AS total_revenue_usd
     FROM taxi t
     LEFT JOIN zones z ON t.PULocationID = z.zone_id
-    WHERE DATE(t.tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2024-04-30'
+    WHERE DATE(t.tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2025-03-31'
     GROUP BY t.PULocationID, z.zone_name, z.borough, z.service_zone
     ORDER BY nb_trips DESC
 """)
@@ -105,7 +105,7 @@ dm_performance = spark.sql("""
         ROUND(AVG(t.tip_amount), 2)     AS avg_tip_usd
     FROM taxi t
     LEFT JOIN zones z ON t.PULocationID = z.zone_id
-    WHERE DATE(t.tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2024-04-30'
+    WHERE DATE(t.tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2025-03-31'
     GROUP BY DATE(t.tpep_pickup_datetime), t.PULocationID, z.zone_name, z.borough
 """)
 
@@ -168,7 +168,7 @@ api_export = spark.sql("""
         ROUND(AVG(t.fare_amount), 2)    AS avg_fare_usd
     FROM taxi t
     LEFT JOIN zones z ON t.PULocationID = z.zone_id
-    WHERE DATE(t.tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2024-04-30'
+    WHERE DATE(t.tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2025-03-31'
     GROUP BY DATE(t.tpep_pickup_datetime), t.PULocationID, z.zone_name, z.borough
 """)
 
