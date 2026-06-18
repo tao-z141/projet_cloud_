@@ -17,7 +17,7 @@ def fetch_weather_historical():
         "?latitude=40.7128"
         "&longitude=-74.0060"
         "&start_date=2024-01-01"
-        "&end_date=2024-04-30"
+        "&end_date=2025-03-31"
         "&hourly=temperature_2m,precipitation,windspeed_10m,weathercode"
         "&timezone=America/New_York"
     )
