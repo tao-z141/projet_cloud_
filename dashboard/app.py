@@ -10,7 +10,7 @@ from datetime import datetime
 
 st.set_page_config(
     page_title="NYC Taxi Platform",
-    page_icon="🚕",
+    page_icon=":taxi:",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -132,15 +132,45 @@ CORAL  = "#FF6B6B"
 GREEN  = "#06D6A0"
 ORANGE = "#FF9A3C"
 
-# Couleurs par année
 YEAR_COLORS  = {"2024": VIOLET, "2025": CORAL}
-MONTH_LABELS = {1: "Jan", 2: "Fév", 3: "Mar", 4: "Avr"}
+MONTH_LABELS = {1: "Jan", 2: "Fev", 3: "Mar", 4: "Avr"}
 
-BUCKET     = "nyc-taxi-platform"
-API_URL    = "https://thg365gege.execute-api.eu-west-3.amazonaws.com/prod"
-AWS_REGION = "eu-west-3"
-AWS_KEY    = st.secrets.get("AWS_ACCESS_KEY_ID", os.environ.get("AWS_ACCESS_KEY_ID"))
-AWS_SECRET = st.secrets.get("AWS_SECRET_ACCESS_KEY", os.environ.get("AWS_SECRET_ACCESS_KEY"))
+BUCKET      = "nyc-taxi-platform"
+API_URL     = "https://thg365gege.execute-api.eu-west-3.amazonaws.com/prod"
+AWS_REGION  = "eu-west-3"
+AWS_KEY     = st.secrets.get("AWS_ACCESS_KEY_ID", os.environ.get("AWS_ACCESS_KEY_ID"))
+AWS_SECRET  = st.secrets.get("AWS_SECRET_ACCESS_KEY", os.environ.get("AWS_SECRET_ACCESS_KEY"))
+
+COGNITO_CLIENT_ID = st.secrets.get("COGNITO_CLIENT_ID", os.environ.get("COGNITO_CLIENT_ID"))
+COGNITO_USERNAME  = st.secrets.get("COGNITO_USERNAME", os.environ.get("COGNITO_USERNAME"))
+COGNITO_PASSWORD  = st.secrets.get("COGNITO_PASSWORD", os.environ.get("COGNITO_PASSWORD"))
+
+# =========================
+# AUTHENTIFICATION COGNITO
+# =========================
+@st.cache_resource(ttl=3000)
+def get_cognito_token():
+    try:
+        client = boto3.client("cognito-idp", region_name=AWS_REGION,
+            aws_access_key_id=AWS_KEY, aws_secret_access_key=AWS_SECRET)
+        response = client.initiate_auth(
+            ClientId=COGNITO_CLIENT_ID,
+            AuthFlow="USER_PASSWORD_AUTH",
+            AuthParameters={
+                "USERNAME": COGNITO_USERNAME,
+                "PASSWORD": COGNITO_PASSWORD
+            }
+        )
+        return response["AuthenticationResult"]["IdToken"]
+    except Exception as e:
+        st.error(f"Erreur authentification Cognito : {e}")
+        return None
+
+def api_headers():
+    token = get_cognito_token()
+    if token:
+        return {"Authorization": token}
+    return {}
 
 @st.cache_data(ttl=300)
 def load_s3_parquet(prefix):
@@ -158,22 +188,22 @@ def load_s3_parquet(prefix):
 @st.cache_data(ttl=30)
 def load_realtime():
     try:
-        return requests.get(f"{API_URL}/realtime", timeout=5).json()
+        r = requests.get(f"{API_URL}/realtime", headers=api_headers(), timeout=5)
+        return r.json()
     except:
         return {"events_count": 0, "latest_events": []}
 
 # Header
 st.markdown("""
 <div class="nyc-header">
-    <div style="font-size:2.8rem">🚕</div>
     <div><h1>NYC Taxi Data Platform</h1></div>
 </div>
 """, unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs([
-    "🏙️  Performance Opérationnelle",
-    "🌧️  Impact Météo",
-    "⚡  Supervision Temps Réel"
+    "Performance Operationnelle",
+    "Impact Meteo",
+    "Supervision Temps Reel"
 ])
 
 # ============================================================
@@ -195,17 +225,15 @@ with tab1:
         df_daily["month_num"] = df_daily["day"].dt.month
         df_daily["month_lbl"] = df_daily["month_num"].map(MONTH_LABELS)
 
-        # KPIs globaux
-        st.markdown('<div class="section-title">KPIs Globaux — Jan·Fév·Mar  2024 vs 2025</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">KPIs Globaux - Jan Fev Mar 2024 vs 2025</div>', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("🚗 Total Courses", f"{int(df_daily['nb_trips'].sum()):,}")
-        k2.metric("💰 Tarif Moyen", f"${df_daily['avg_fare_usd'].mean():.2f}")
-        k3.metric("📏 Distance Moy.", f"{df_daily['avg_distance_km'].mean():.2f} km")
-        k4.metric("💵 Revenus Totaux", f"${df_daily['total_revenue_usd'].sum()/1e6:.1f}M")
+        k1.metric("Total Courses", f"{int(df_daily['nb_trips'].sum()):,}")
+        k2.metric("Tarif Moyen", f"${df_daily['avg_fare_usd'].mean():.2f}")
+        k3.metric("Distance Moy.", f"{df_daily['avg_distance_km'].mean():.2f} km")
+        k4.metric("Revenus Totaux", f"${df_daily['total_revenue_usd'].sum()/1e6:.1f}M")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Agrégats par mois + année
         df_month = df_daily.groupby(["year", "month_num", "month_lbl"]).agg(
             nb_trips=("nb_trips", "sum"),
             total_revenue=("total_revenue_usd", "sum"),
@@ -216,7 +244,7 @@ with tab1:
         c1, c2 = st.columns(2)
 
         with c1:
-            st.markdown('<div class="section-title">Courses par mois — 2024 vs 2025</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Courses par mois - 2024 vs 2025</div>', unsafe_allow_html=True)
             fig1 = go.Figure()
             for year, color in YEAR_COLORS.items():
                 d = df_month[df_month["year"] == year]
@@ -236,7 +264,7 @@ with tab1:
             st.plotly_chart(fig1, use_container_width=True)
 
         with c2:
-            st.markdown('<div class="section-title">Revenus par mois ($M) — 2024 vs 2025</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Revenus par mois ($M) - 2024 vs 2025</div>', unsafe_allow_html=True)
             fig2 = go.Figure()
             for year, color in YEAR_COLORS.items():
                 d = df_month[df_month["year"] == year]
@@ -258,7 +286,7 @@ with tab1:
         c3, c4 = st.columns(2)
 
         with c3:
-            st.markdown('<div class="section-title">Tarif moyen par mois — 2024 vs 2025</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Tarif moyen par mois - 2024 vs 2025</div>', unsafe_allow_html=True)
             fig3 = go.Figure()
             for year, color in YEAR_COLORS.items():
                 d = df_month[df_month["year"] == year].sort_values("month_num")
@@ -279,7 +307,7 @@ with tab1:
             st.plotly_chart(fig3, use_container_width=True)
 
         with c4:
-            st.markdown('<div class="section-title">Distance moyenne par mois — 2024 vs 2025</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Distance moyenne par mois - 2024 vs 2025</div>', unsafe_allow_html=True)
             fig4 = go.Figure()
             for year, color in YEAR_COLORS.items():
                 d = df_month[df_month["year"] == year].sort_values("month_num")
@@ -299,13 +327,11 @@ with tab1:
                 legend=dict(bgcolor="rgba(0,0,0,0)"), yaxis_title="Distance (km)")
             st.plotly_chart(fig4, use_container_width=True)
 
-        # Courbe quotidienne par année
-        st.markdown('<div class="section-title">Volume quotidien — 2024 vs 2025</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Volume quotidien - 2024 vs 2025</div>', unsafe_allow_html=True)
         fig5 = go.Figure()
         for year, color in YEAR_COLORS.items():
             d = df_daily[df_daily["year"] == year]
             if d.empty: continue
-            # Aligner sur l'axe jour de l'année pour superposer
             d = d.copy()
             d["day_of_year"] = d["day"].dt.strftime("2000-%m-%d")
             fig5.add_trace(go.Scatter(
@@ -321,9 +347,8 @@ with tab1:
             xaxis_tickformat="%b")
         st.plotly_chart(fig5, use_container_width=True)
 
-        # Top zones
         if not df_zone.empty:
-            st.markdown('<div class="section-title">Top 15 Zones — Revenus cumulés</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Top 15 Zones - Revenus cumules</div>', unsafe_allow_html=True)
             df_top = df_zone.sort_values("total_revenue_usd", ascending=False).head(15).copy()
             label_col = "zone_name" if "zone_name" in df_top.columns else "zone_id"
             df_top["label"] = df_top[label_col].astype(str).str[:25]
@@ -347,10 +372,10 @@ with tab1:
             )
             st.plotly_chart(fig6, use_container_width=True)
     else:
-        st.warning("Aucune donnée Gold disponible.")
+        st.warning("Aucune donnee Gold disponible.")
 
 # ============================================================
-# TAB 2 — MÉTÉO
+# TAB 2 — METEO
 # ============================================================
 with tab2:
     with st.spinner(""):
@@ -358,13 +383,13 @@ with tab2:
         df_daily2  = load_s3_parquet("gold/kpi_daily/")
 
     if not df_weather.empty and "temperature_2m" in df_weather.columns:
-        st.markdown('<div class="section-title">Météo NYC — Jan·Fév·Mar  2024 & 2025</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Meteo NYC - Jan Fev Mar 2024 et 2025</div>', unsafe_allow_html=True)
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("🌡️ Température moy.", f"{df_weather['temperature_2m'].mean():.1f}°C")
-        m2.metric("🔴 Max.", f"{df_weather['temperature_2m'].max():.1f}°C")
-        m3.metric("🔵 Min.", f"{df_weather['temperature_2m'].min():.1f}°C")
+        m1.metric("Temperature moy.", f"{df_weather['temperature_2m'].mean():.1f}C")
+        m2.metric("Max.", f"{df_weather['temperature_2m'].max():.1f}C")
+        m3.metric("Min.", f"{df_weather['temperature_2m'].min():.1f}C")
         if "precipitation" in df_weather.columns:
-            m4.metric("🌧️ Précipitations", f"{df_weather['precipitation'].sum():.0f} mm")
+            m4.metric("Precipitations", f"{df_weather['precipitation'].sum():.0f} mm")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -383,20 +408,18 @@ with tab2:
 
             if not df_corr.empty:
                 df_corr["year"] = df_corr["day"].dt.year.astype(str)
-
-                # Température par mois comparée 2024 vs 2025
                 df_corr["month_num"] = df_corr["day"].dt.month
                 df_corr["month_lbl"] = df_corr["month_num"].map(MONTH_LABELS)
-                st.markdown('<div class="section-title">Corrélations Météo → Demande</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-title">Correlations Meteo vers Demande</div>', unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
                 with c1:
                     fig_c1 = px.scatter(df_corr, x="avg_temp", y="nb_trips",
                         color="year",
                         trendline="ols",
                         color_discrete_map=YEAR_COLORS,
-                        labels={"avg_temp": "Température moy. (°C)", "nb_trips": "Nb courses", "year": "Année"})
+                        labels={"avg_temp": "Temperature moy. (C)", "nb_trips": "Nb courses", "year": "Annee"})
                     fig_c1.update_traces(marker=dict(size=8, opacity=0.65))
-                    fig_c1.update_layout(**THEME, title="🌡️ Température vs Courses", height=300,
+                    fig_c1.update_layout(**THEME, title="Temperature vs Courses", height=300,
                         legend=dict(bgcolor="rgba(0,0,0,0)"))
                     st.plotly_chart(fig_c1, use_container_width=True)
                 with c2:
@@ -404,13 +427,13 @@ with tab2:
                         color="year",
                         trendline="ols",
                         color_discrete_map=YEAR_COLORS,
-                        labels={"total_precip": "Précipitations (mm)", "nb_trips": "Nb courses", "year": "Année"})
+                        labels={"total_precip": "Precipitations (mm)", "nb_trips": "Nb courses", "year": "Annee"})
                     fig_c2.update_traces(marker=dict(size=8, opacity=0.65))
-                    fig_c2.update_layout(**THEME, title="🌧️ Précipitations vs Courses", height=300,
+                    fig_c2.update_layout(**THEME, title="Precipitations vs Courses", height=300,
                         legend=dict(bgcolor="rgba(0,0,0,0)"))
                     st.plotly_chart(fig_c2, use_container_width=True)
     else:
-        st.warning("Aucune donnée météo.")
+        st.warning("Aucune donnee meteo.")
 
 # ============================================================
 # TAB 3 — STREAMING
@@ -418,7 +441,7 @@ with tab2:
 with tab3:
     col_refresh, _ = st.columns([1, 6])
     with col_refresh:
-        if st.button("🔄 Rafraîchir", use_container_width=True):
+        if st.button("Rafraichir", use_container_width=True):
             st.cache_data.clear()
 
     realtime     = load_realtime()
@@ -431,13 +454,13 @@ with tab3:
             if c in df_rt.columns:
                 df_rt[c] = pd.to_numeric(df_rt[c], errors="coerce")
 
-        st.markdown('<div class="section-title">KPIs Temps Réel</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">KPIs Temps Reel</div>', unsafe_allow_html=True)
         k1, k2, k3 = st.columns(3)
         if "total_amount" in df_rt.columns:
-            k1.metric("💰 Montant moyen", f"${df_rt['total_amount'].mean():.2f}")
-            k2.metric("💵 Revenu estimé", f"${df_rt['total_amount'].sum():.0f}")
+            k1.metric("Montant moyen", f"${df_rt['total_amount'].mean():.2f}")
+            k2.metric("Revenu estime", f"${df_rt['total_amount'].sum():.0f}")
         if "trip_distance" in df_rt.columns:
-            k3.metric("📏 Distance moy.", f"{df_rt['trip_distance'].mean():.2f} km")
+            k3.metric("Distance moy.", f"{df_rt['trip_distance'].mean():.2f} km")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -445,9 +468,9 @@ with tab3:
             df_rt["anomalie"] = df_rt["total_amount"] > 55
             nb_anomalies = int(df_rt["anomalie"].sum())
             if nb_anomalies > 0:
-                st.markdown(f'<div class="alert-box">⚠️ <strong>{nb_anomalies} course(s) à montant élevé</strong> — Seuil de détection : $55</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="alert-box"><strong>{nb_anomalies} course(s) a montant eleve</strong> - Seuil de detection : $55</div>', unsafe_allow_html=True)
             else:
-                st.markdown('<div class="ok-box">✅ Aucune anomalie détectée sur les derniers événements</div>', unsafe_allow_html=True)
+                st.markdown('<div class="ok-box">Aucune anomalie detectee sur les derniers evenements</div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
@@ -467,7 +490,7 @@ with tab3:
                 fig_fare.add_vline(x=55, line_dash="dash", line_color=CORAL,
                     annotation_text="Seuil $55", annotation_font_color=CORAL)
                 fig_fare.update_layout(**THEME, height=250, showlegend=False,
-                    xaxis_title="Montant ($)", yaxis_title="Fréquence")
+                    xaxis_title="Montant ($)", yaxis_title="Frequence")
                 st.plotly_chart(fig_fare, use_container_width=True)
 
         with c2:
@@ -535,8 +558,7 @@ with tab3:
     else:
         st.markdown("""
         <div style="text-align:center; padding:3rem; color:#AAAAAA;">
-            <div style="font-size:3.5rem">⚡</div>
-            <div style="font-size:1.1rem; margin-top:1rem; color:#666;">Aucune donnée streaming disponible</div>
+            <div style="font-size:1.1rem; margin-top:1rem; color:#666;">Aucune donnee streaming disponible</div>
             <div style="font-size:0.85rem; margin-top:0.5rem;">Lance le producer Kafka sur l'EC2 pour alimenter ce dashboard</div>
         </div>
         """, unsafe_allow_html=True)
