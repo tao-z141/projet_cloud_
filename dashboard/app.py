@@ -158,11 +158,30 @@ def cognito_login(username, password):
             }
         )
         if "AuthenticationResult" in response:
-            return response["AuthenticationResult"]["IdToken"], None
+            return response["AuthenticationResult"]["IdToken"], None, None
+        elif response.get("ChallengeName") == "NEW_PASSWORD_REQUIRED":
+            return None, "NEW_PASSWORD_REQUIRED", response["Session"]
         elif "ChallengeName" in response:
-            return None, f"Challenge requis : {response['ChallengeName']}"
+            return None, f"Challenge non gere : {response['ChallengeName']}", None
         else:
-            return None, f"Reponse inattendue : {response}"
+            return None, f"Reponse inattendue : {response}", None
+    except Exception as e:
+        return None, str(e), None
+
+def cognito_set_new_password(username, new_password, session):
+    try:
+        client = boto3.client("cognito-idp", region_name=AWS_REGION,
+            aws_access_key_id=AWS_KEY, aws_secret_access_key=AWS_SECRET)
+        response = client.respond_to_auth_challenge(
+            ClientId=COGNITO_CLIENT_ID,
+            ChallengeName="NEW_PASSWORD_REQUIRED",
+            Session=session,
+            ChallengeResponses={
+                "USERNAME": username,
+                "NEW_PASSWORD": new_password
+            }
+        )
+        return response["AuthenticationResult"]["IdToken"], None
     except Exception as e:
         return None, str(e)
 
@@ -176,6 +195,35 @@ def show_login_screen():
 
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
+        # Etape 2 : nouveau mot de passe requis par Cognito
+        if st.session_state.get("pending_new_password"):
+            st.info("Premiere connexion : merci de definir un nouveau mot de passe.")
+            with st.form("new_password_form"):
+                new_password = st.text_input("Nouveau mot de passe", type="password")
+                confirm_password = st.text_input("Confirmer le mot de passe", type="password")
+                submit_np = st.form_submit_button("Valider", use_container_width=True)
+
+                if submit_np:
+                    if not new_password or new_password != confirm_password:
+                        st.error("Les mots de passe ne correspondent pas.")
+                    else:
+                        token, error = cognito_set_new_password(
+                            st.session_state["pending_username"],
+                            new_password,
+                            st.session_state["pending_session"]
+                        )
+                        if token:
+                            st.session_state["auth_token"] = token
+                            st.session_state["username"] = st.session_state["pending_username"]
+                            del st.session_state["pending_new_password"]
+                            del st.session_state["pending_username"]
+                            del st.session_state["pending_session"]
+                            st.rerun()
+                        else:
+                            st.error(f"Erreur : {error}")
+            return
+
+        # Etape 1 : login classique
         with st.form("login_form"):
             username = st.text_input("Email")
             password = st.text_input("Mot de passe", type="password")
@@ -185,10 +233,15 @@ def show_login_screen():
                 if not username or not password:
                     st.error("Merci de renseigner email et mot de passe.")
                 else:
-                    token, error = cognito_login(username, password)
+                    token, error, session = cognito_login(username, password)
                     if token:
                         st.session_state["auth_token"] = token
                         st.session_state["username"] = username
+                        st.rerun()
+                    elif error == "NEW_PASSWORD_REQUIRED":
+                        st.session_state["pending_new_password"] = True
+                        st.session_state["pending_username"] = username
+                        st.session_state["pending_session"] = session
                         st.rerun()
                     else:
                         st.error(f"Echec de connexion : {error}")
