@@ -157,7 +157,12 @@ def cognito_login(username, password):
                 "PASSWORD": password
             }
         )
-        return response["AuthenticationResult"]["IdToken"], None
+        if "AuthenticationResult" in response:
+            return response["AuthenticationResult"]["IdToken"], None
+        elif "ChallengeName" in response:
+            return None, f"Challenge requis : {response['ChallengeName']}"
+        else:
+            return None, f"Reponse inattendue : {response}"
     except Exception as e:
         return None, str(e)
 
