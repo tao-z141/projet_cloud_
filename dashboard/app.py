@@ -140,16 +140,12 @@ API_URL     = "https://thg365gege.execute-api.eu-west-3.amazonaws.com/prod"
 AWS_REGION  = "eu-west-3"
 AWS_KEY     = st.secrets.get("AWS_ACCESS_KEY_ID", os.environ.get("AWS_ACCESS_KEY_ID"))
 AWS_SECRET  = st.secrets.get("AWS_SECRET_ACCESS_KEY", os.environ.get("AWS_SECRET_ACCESS_KEY"))
-
 COGNITO_CLIENT_ID = st.secrets.get("COGNITO_CLIENT_ID", os.environ.get("COGNITO_CLIENT_ID"))
-COGNITO_USERNAME  = st.secrets.get("COGNITO_USERNAME", os.environ.get("COGNITO_USERNAME"))
-COGNITO_PASSWORD  = st.secrets.get("COGNITO_PASSWORD", os.environ.get("COGNITO_PASSWORD"))
 
 # =========================
-# AUTHENTIFICATION COGNITO
+# AUTHENTIFICATION COGNITO - LOGIN INTERACTIF
 # =========================
-@st.cache_resource(ttl=3000)
-def get_cognito_token():
+def cognito_login(username, password):
     try:
         client = boto3.client("cognito-idp", region_name=AWS_REGION,
             aws_access_key_id=AWS_KEY, aws_secret_access_key=AWS_SECRET)
@@ -157,20 +153,51 @@ def get_cognito_token():
             ClientId=COGNITO_CLIENT_ID,
             AuthFlow="USER_PASSWORD_AUTH",
             AuthParameters={
-                "USERNAME": COGNITO_USERNAME,
-                "PASSWORD": COGNITO_PASSWORD
+                "USERNAME": username,
+                "PASSWORD": password
             }
         )
-        return response["AuthenticationResult"]["IdToken"]
+        return response["AuthenticationResult"]["IdToken"], None
     except Exception as e:
-        st.error(f"Erreur authentification Cognito : {e}")
-        return None
+        return None, str(e)
+
+def show_login_screen():
+    st.markdown("""
+    <div style="max-width:420px; margin: 4rem auto; text-align:center;">
+        <h1 style="color:#1A1A2E; font-size:1.8rem; margin-bottom:0.3rem;">NYC Taxi Data Platform</h1>
+        <p style="color:#888; font-size:0.9rem; margin-bottom:2rem;">Connexion requise</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        with st.form("login_form"):
+            username = st.text_input("Email")
+            password = st.text_input("Mot de passe", type="password")
+            submit = st.form_submit_button("Se connecter", use_container_width=True)
+
+            if submit:
+                if not username or not password:
+                    st.error("Merci de renseigner email et mot de passe.")
+                else:
+                    token, error = cognito_login(username, password)
+                    if token:
+                        st.session_state["auth_token"] = token
+                        st.session_state["username"] = username
+                        st.rerun()
+                    else:
+                        st.error(f"Echec de connexion : {error}")
 
 def api_headers():
-    token = get_cognito_token()
+    token = st.session_state.get("auth_token")
     if token:
         return {"Authorization": token}
     return {}
+
+# Bloque l'acces tant que l'utilisateur n'est pas authentifie
+if "auth_token" not in st.session_state:
+    show_login_screen()
+    st.stop()
 
 @st.cache_data(ttl=300)
 def load_s3_parquet(prefix):
@@ -194,11 +221,18 @@ def load_realtime():
         return {"events_count": 0, "latest_events": []}
 
 # Header
-st.markdown("""
-<div class="nyc-header">
-    <div><h1>NYC Taxi Data Platform</h1></div>
-</div>
-""", unsafe_allow_html=True)
+header_col1, header_col2 = st.columns([5, 1])
+with header_col1:
+    st.markdown("""
+    <div class="nyc-header">
+        <div><h1>NYC Taxi Data Platform</h1></div>
+    </div>
+    """, unsafe_allow_html=True)
+with header_col2:
+    st.markdown("<div style='padding-top:1.8rem'></div>", unsafe_allow_html=True)
+    if st.button("Deconnexion", use_container_width=True):
+        del st.session_state["auth_token"]
+        st.rerun()
 
 tab1, tab2, tab3 = st.tabs([
     "Performance Operationnelle",
