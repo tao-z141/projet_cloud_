@@ -183,12 +183,61 @@ Resources:
                   return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
 
   # =========================
+  # COGNITO — USER POOL POUR AUTHENTIFICATION API
+  # =========================
+  TaxiUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: nyc-taxi-user-pool
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+
+  TaxiUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: nyc-taxi-dashboard-client
+      UserPoolId: !Ref TaxiUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+
+  # =========================
   # API GATEWAY
   # =========================
   TaxiApi:
     Type: AWS::ApiGateway::RestApi
     Properties:
       Name: nyc-taxi-api
+
+  # =========================
+  # API GATEWAY AUTHORIZER — COGNITO
+  # =========================
+  TaxiApiAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: nyc-taxi-cognito-authorizer
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      RestApiId: !Ref TaxiApi
+      ProviderARNs:
+        - !GetAtt TaxiUserPool.Arn
 
   TripsResource:
     Type: AWS::ApiGateway::Resource
@@ -203,7 +252,8 @@ Resources:
       RestApiId: !Ref TaxiApi
       ResourceId: !Ref TripsResource
       HttpMethod: GET
-      AuthorizationType: NONE
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref TaxiApiAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -230,7 +280,8 @@ Resources:
       RestApiId: !Ref TaxiApi
       ResourceId: !Ref WeatherResource
       HttpMethod: GET
-      AuthorizationType: NONE
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref TaxiApiAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -257,7 +308,8 @@ Resources:
       RestApiId: !Ref TaxiApi
       ResourceId: !Ref RealtimeResource
       HttpMethod: GET
-      AuthorizationType: NONE
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref TaxiApiAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -301,3 +353,13 @@ Outputs:
 
   RealtimeEndpoint:
     Value: !Sub https://${TaxiApi}.execute-api.${AWS::Region}.amazonaws.com/prod/realtime
+
+  CognitoUserPoolId:
+    Value: !Ref TaxiUserPool
+    Export:
+      Name: CognitoUserPoolId
+
+  CognitoUserPoolClientId:
+    Value: !Ref TaxiUserPoolClient
+    Export:
+      Name: CognitoUserPoolClientId
