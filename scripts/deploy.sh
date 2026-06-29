@@ -5,12 +5,12 @@ REGION="${AWS_DEFAULT_REGION:-eu-west-3}"
 KEY_PAIR="${1:-nyc-taxi-key}"
 
 echo "========================================"
-echo " NYC Taxi Platform — CloudFormation Deploy"
+echo " NYC Taxi Platform — CloudFormation Deploy (6 stacks)"
 echo " Region: $REGION | Key: $KEY_PAIR"
 echo "========================================"
 
 echo ""
-echo "[1/5] Deploying Networking Stack..."
+echo "[1/6] Deploying Networking Stack..."
 aws cloudformation deploy \
   --stack-name nyc-network \
   --template-file infrastructure/cloudformation/networking.yaml \
@@ -18,7 +18,7 @@ aws cloudformation deploy \
 echo "    Networking OK"
 
 echo ""
-echo "[2/5] Deploying Storage Stack..."
+echo "[2/6] Deploying Storage Stack..."
 aws cloudformation deploy \
   --stack-name nyc-storage \
   --template-file infrastructure/cloudformation/storage.yaml \
@@ -26,7 +26,7 @@ aws cloudformation deploy \
 echo "    Storage OK"
 
 echo ""
-echo "[3/5] Deploying Databases Stack..."
+echo "[3/6] Deploying Databases Stack..."
 aws cloudformation deploy \
   --stack-name nyc-db \
   --template-file infrastructure/cloudformation/databases.yaml \
@@ -35,7 +35,7 @@ aws cloudformation deploy \
 echo "    Databases OK"
 
 echo ""
-echo "[4/5] Deploying Kafka Stack..."
+echo "[4/6] Deploying Kafka Stack..."
 aws cloudformation deploy \
   --stack-name nyc-kafka \
   --template-file infrastructure/cloudformation/kafka.yaml \
@@ -44,13 +44,22 @@ aws cloudformation deploy \
 echo "    Kafka OK"
 
 echo ""
-echo "[5/5] Deploying API Stack..."
+echo "[5/6] Deploying API Stack..."
 aws cloudformation deploy \
   --stack-name nyc-api \
   --template-file infrastructure/cloudformation/api.yaml \
   --capabilities CAPABILITY_NAMED_IAM \
   --region "$REGION"
 echo "    API OK"
+
+echo ""
+echo "[6/6] Deploying Orchestration Stack (Step Functions + EventBridge)..."
+aws cloudformation deploy \
+  --stack-name nyc-orchestration \
+  --template-file infrastructure/cloudformation/orchestration.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region "$REGION"
+echo "    Orchestration OK"
 
 echo ""
 echo "========================================"
