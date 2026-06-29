@@ -146,21 +146,6 @@ Resources:
                 Resource: !Ref PipelineStateMachine
 
   # =========================
-  # EVENTBRIDGE — DECLENCHEMENT PROGRAMME (CRON QUOTIDIEN)
-  # =========================
-  DailyScheduleRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: nyc-taxi-daily-schedule
-      Description: Declenche le pipeline NYC Taxi tous les jours a 6h UTC
-      ScheduleExpression: "cron(0 6 * * ? *)"
-      State: ENABLED
-      Targets:
-        - Arn: !Ref PipelineStateMachine
-          Id: DailyPipelineTarget
-          RoleArn: !GetAtt EventBridgeInvokeRole.Arn
-
-  # =========================
   # EVENTBRIDGE — DECLENCHEMENT EVENEMENTIEL (NOUVEAU FICHIER S3 BRONZE/TAXI/)
   # =========================
   S3UploadRule:
@@ -191,9 +176,6 @@ Outputs:
     Value: !Ref PipelineStateMachine
     Export:
       Name: NycTaxiPipelineStateMachineArn
-
-  DailyScheduleRuleName:
-    Value: !Ref DailyScheduleRule
 
   S3UploadRuleName:
     Value: !Ref S3UploadRule
