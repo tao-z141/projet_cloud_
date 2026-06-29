@@ -48,6 +48,9 @@ jobs:
       - name: Validate api.yaml
         run: aws cloudformation validate-template --template-body file://infrastructure/cloudformation/api.yaml
 
+      - name: Validate orchestration.yaml
+        run: aws cloudformation validate-template --template-body file://infrastructure/cloudformation/orchestration.yaml
+
   deploy:
     name: Deploy CloudFormation Stacks
     runs-on: ubuntu-latest
