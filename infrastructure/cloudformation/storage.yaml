@@ -28,6 +28,10 @@ Resources:
             Status: Enabled
             ExpirationInDays: 30
 
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
 Outputs:
   BucketName:
     Value: !Ref DataLakeBucket
