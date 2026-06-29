@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: NYC Taxi Pipeline Orchestration - Step Functions + EventBridge (parallele a run_glue.yml)
+
+Resources:
+
+  # =========================
+  # IAM ROLE — STEP FUNCTIONS
+  # =========================
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: nyc-taxi-stepfunctions-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GlueStartJobRunPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:StartJobRun
+                  - glue:GetJobRun
+                  - glue:GetJobRuns
+                  - glue:BatchStopJobRun
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogDelivery
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                  - logs:PutResourcePolicy
+                  - logs:DescribeResourcePolicies
+                  - logs:DescribeLogGroups
+                Resource: "*"
+
+  # =========================
+  # CLOUDWATCH LOG GROUP — STEP FUNCTIONS
+  # =========================
+  PipelineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/vendedlogs/states/nyc-taxi-pipeline
+      RetentionInDays: 30
+
+  # =========================
+  # STEP FUNCTIONS — ORCHESTRATION DU PIPELINE GLUE
+  # =========================
+  PipelineStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: nyc-taxi-pipeline
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt PipelineLogGroup.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Pipeline NYC Taxi : bronze_to_silver -> silver_to_gold -> gold_to_rds",
+          "StartAt": "BronzeToSilver",
+          "States": {
+            "BronzeToSilver": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "bronze_to_silver"
+              },
+              "Next": "SilverToGold",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "PipelineFailed"
+                }
+              ]
+            },
+            "SilverToGold": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "silver_to_gold"
+              },
+              "Next": "GoldToRds",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "PipelineFailed"
+                }
+              ]
+            },
+            "GoldToRds": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "gold_to_rds"
+              },
+              "Next": "PipelineSucceeded",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "PipelineFailed"
+                }
+              ]
+            },
+            "PipelineSucceeded": {
+              "Type": "Succeed"
+            },
+            "PipelineFailed": {
+              "Type": "Fail",
+              "Cause": "Un job Glue a echoue dans le pipeline NYC Taxi"
+            }
+          }
+        }
+
+  # =========================
+  # IAM ROLE — EVENTBRIDGE (declenche Step Functions)
+  # =========================
+  EventBridgeInvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: nyc-taxi-eventbridge-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StartStateMachinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !Ref PipelineStateMachine
+
+  # =========================
+  # EVENTBRIDGE — DECLENCHEMENT PROGRAMME (CRON QUOTIDIEN)
+  # =========================
+  DailyScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: nyc-taxi-daily-schedule
+      Description: Declenche le pipeline NYC Taxi tous les jours a 6h UTC
+      ScheduleExpression: "cron(0 6 * * ? *)"
+      State: ENABLED
+      Targets:
+        - Arn: !Ref PipelineStateMachine
+          Id: DailyPipelineTarget
+          RoleArn: !GetAtt EventBridgeInvokeRole.Arn
+
+  # =========================
+  # EVENTBRIDGE — DECLENCHEMENT EVENEMENTIEL (NOUVEAU FICHIER S3 BRONZE/TAXI/)
+  # =========================
+  S3UploadRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: nyc-taxi-s3-upload-trigger
+      Description: Declenche le pipeline quand un nouveau fichier taxi est depose dans bronze/taxi/
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - nyc-taxi-platform
+          object:
+            key:
+              - prefix: bronze/taxi/
+      State: ENABLED
+      Targets:
+        - Arn: !Ref PipelineStateMachine
+          Id: S3UploadPipelineTarget
+          RoleArn: !GetAtt EventBridgeInvokeRole.Arn
+
+Outputs:
+  StateMachineArn:
+    Value: !Ref PipelineStateMachine
+    Export:
+      Name: NycTaxiPipelineStateMachineArn
+
+  DailyScheduleRuleName:
+    Value: !Ref DailyScheduleRule
+
+  S3UploadRuleName:
+    Value: !Ref S3UploadRule
