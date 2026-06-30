@@ -1,7 +1,123 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: NYC Taxi Pipeline Orchestration - Step Functions + EventBridge (parallele a run_glue.yml)
+Description: NYC Taxi Pipeline Orchestration - Step Functions (ingestion + Glue) + EventBridge schedule mensuel
 
 Resources:
+
+  # =========================
+  # IAM ROLE — LAMBDA INGESTION
+  # =========================
+  IngestionLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: nyc-taxi-ingestion-lambda-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3WriteBronzePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:HeadObject
+                Resource: arn:aws:s3:::nyc-taxi-platform/bronze/taxi/*
+
+  # =========================
+  # LAMBDA — INGESTION TAXI
+  # Calcule automatiquement le mois a ingerer (mois precedent - 2 mois de delai NYC TLC)
+  # Peut aussi recevoir un mois specifique en parametre pour rejouer un mois
+  # =========================
+  IngestTaxiLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nyc-ingest-taxi-month
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt IngestionLambdaRole.Arn
+      Timeout: 600
+      MemorySize: 1536
+      Layers:
+        - !Sub arn:aws:lambda:${AWS::Region}:336392948345:layer:AWSSDKPandas-Python311:17
+      Environment:
+        Variables:
+          S3_BUCKET: nyc-taxi-platform
+          TLC_DELAY_MONTHS: "2"
+      Code:
+        ZipFile: |
+          import json, io, os, urllib.request
+          from datetime import datetime, date
+          from dateutil.relativedelta import relativedelta
+          import boto3
+          import pandas as pd
+
+          s3 = boto3.client("s3")
+          S3_BUCKET = os.environ["S3_BUCKET"]
+          TLC_DELAY = int(os.environ.get("TLC_DELAY_MONTHS", "2"))
+
+          def compute_target_month():
+              """Calcule le mois a ingerer : mois courant - delai de publication NYC TLC."""
+              today = date.today()
+              target = today - relativedelta(months=TLC_DELAY)
+              return target.strftime("%Y-%m")
+
+          def file_exists_on_s3(key):
+              """Verifie si le fichier est deja present sur S3 pour eviter un re-telechargement."""
+              try:
+                  s3.head_object(Bucket=S3_BUCKET, Key=key)
+                  return True
+              except Exception:
+                  return False
+
+          def lambda_handler(event, context):
+              # Priorite 1 : mois passe explicitement en parametre (pour rejouer un mois)
+              # Priorite 2 : calcul automatique du mois precedent selon le delai NYC TLC
+              month = event.get("month") or compute_target_month()
+
+              key = f"bronze/taxi/taxi_{month}.parquet"
+
+              # Idempotence : ne re-telecharge pas si le fichier existe deja
+              if file_exists_on_s3(key):
+                  return {
+                      "statusCode": 200,
+                      "month": month,
+                      "status": "already_exists",
+                      "s3_key": key,
+                      "message": f"Fichier deja present sur S3, ingestion ignoree"
+                  }
+
+              try:
+                  url = f"https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{month}.parquet"
+                  req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+
+                  with urllib.request.urlopen(req, timeout=300) as response:
+                      raw_bytes = response.read()
+
+                  df = pd.read_parquet(io.BytesIO(raw_bytes))
+                  df = df.dropna(subset=["tpep_pickup_datetime", "tpep_dropoff_datetime"])
+
+                  local_path = f"/tmp/taxi_{month}.parquet"
+                  df.to_parquet(local_path, index=False)
+                  s3.upload_file(local_path, S3_BUCKET, key)
+
+                  return {
+                      "statusCode": 200,
+                      "month": month,
+                      "status": "ingested",
+                      "rows": len(df),
+                      "s3_key": key
+                  }
+
+              except Exception as e:
+                  raise RuntimeError(f"Echec ingestion {month} : {str(e)}")
 
   # =========================
   # IAM ROLE — STEP FUNCTIONS
@@ -18,7 +134,7 @@ Resources:
               Service: states.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: GlueStartJobRunPolicy
+        - PolicyName: GlueAndLambdaPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -29,6 +145,10 @@ Resources:
                   - glue:GetJobRuns
                   - glue:BatchStopJobRun
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt IngestTaxiLambda.Arn
               - Effect: Allow
                 Action:
                   - logs:CreateLogDelivery
@@ -51,7 +171,9 @@ Resources:
       RetentionInDays: 30
 
   # =========================
-  # STEP FUNCTIONS — ORCHESTRATION DU PIPELINE GLUE
+  # STEP FUNCTIONS — PIPELINE BOUT EN BOUT
+  # 1. IngestTaxi  : Lambda calcule et ingere le bon mois automatiquement
+  # 2. BronzeToSilver -> SilverToGold -> GoldToRds : jobs Glue sequentiels
   # =========================
   PipelineStateMachine:
     Type: AWS::StepFunctions::StateMachine
@@ -66,9 +188,21 @@ Resources:
               LogGroupArn: !GetAtt PipelineLogGroup.Arn
       DefinitionString: !Sub |
         {
-          "Comment": "Pipeline NYC Taxi : bronze_to_silver -> silver_to_gold -> gold_to_rds",
-          "StartAt": "BronzeToSilver",
+          "Comment": "Pipeline NYC Taxi bout en bout : ingestion automatique -> bronze_to_silver -> silver_to_gold -> gold_to_rds",
+          "StartAt": "IngestTaxi",
           "States": {
+            "IngestTaxi": {
+              "Type": "Task",
+              "Resource": "${IngestTaxiLambda.Arn}",
+              "Comment": "La Lambda calcule automatiquement le mois a ingerer selon le delai NYC TLC. Passer month dans l input pour forcer un mois specifique.",
+              "Next": "BronzeToSilver",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "PipelineFailed"
+                }
+              ]
+            },
             "BronzeToSilver": {
               "Type": "Task",
               "Resource": "arn:aws:states:::glue:startJobRun.sync",
@@ -116,13 +250,13 @@ Resources:
             },
             "PipelineFailed": {
               "Type": "Fail",
-              "Cause": "Un job Glue a echoue dans le pipeline NYC Taxi"
+              "Cause": "Une etape du pipeline NYC Taxi a echoue"
             }
           }
         }
 
   # =========================
-  # IAM ROLE — EVENTBRIDGE (declenche Step Functions)
+  # IAM ROLE — EVENTBRIDGE
   # =========================
   EventBridgeInvokeRole:
     Type: AWS::IAM::Role
@@ -146,29 +280,24 @@ Resources:
                 Resource: !Ref PipelineStateMachine
 
   # =========================
-  # EVENTBRIDGE — DECLENCHEMENT EVENEMENTIEL (NOUVEAU FICHIER S3 BRONZE/TAXI/)
+  # EVENTBRIDGE — DECLENCHEMENT MENSUEL AUTOMATIQUE
+  # Le 5 de chaque mois a 6h UTC
+  # Aucun Input necessaire : la Lambda calcule elle-meme le mois a ingerer
+  # DISABLED par defaut — activer en production
   # =========================
-  S3UploadRule:
+  MonthlyScheduleRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: nyc-taxi-s3-upload-trigger
-      Description: Declenche le pipeline quand un nouveau fichier taxi est depose dans bronze/taxi/
-      EventPattern:
-        source:
-          - aws.s3
-        detail-type:
-          - Object Created
-        detail:
-          bucket:
-            name:
-              - nyc-taxi-platform
-          object:
-            key:
-              - prefix: bronze/taxi/
-      State: ENABLED
+      Name: nyc-taxi-monthly-schedule
+      Description: >
+        Declenche automatiquement le pipeline NYC Taxi le 5 de chaque mois.
+        La Lambda d ingestion calcule automatiquement le mois cible (mois courant - 2 mois).
+        Aucune intervention manuelle requise.
+      ScheduleExpression: "cron(0 6 5 * ? *)"
+      State: DISABLED
       Targets:
         - Arn: !Ref PipelineStateMachine
-          Id: S3UploadPipelineTarget
+          Id: MonthlyPipelineTarget
           RoleArn: !GetAtt EventBridgeInvokeRole.Arn
 
 Outputs:
@@ -177,5 +306,8 @@ Outputs:
     Export:
       Name: NycTaxiPipelineStateMachineArn
 
-  S3UploadRuleName:
-    Value: !Ref S3UploadRule
+  IngestTaxiLambdaArn:
+    Value: !GetAtt IngestTaxiLambda.Arn
+
+  MonthlyScheduleRuleName:
+    Value: !Ref MonthlyScheduleRule
