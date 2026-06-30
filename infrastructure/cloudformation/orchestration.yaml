@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: NYC Taxi Pipeline Orchestration - Step Functions (ingestion + Glue) + EventBridge schedule mensuel
+Description: NYC Taxi Pipeline Orchestration - Step Functions (ingestion taxi+weather en parallele + Glue) + EventBridge
 
 Resources:
 
@@ -29,12 +29,12 @@ Resources:
                   - s3:PutObject
                   - s3:GetObject
                   - s3:HeadObject
-                Resource: arn:aws:s3:::nyc-taxi-platform/bronze/taxi/*
+                Resource:
+                  - arn:aws:s3:::nyc-taxi-platform/bronze/taxi/*
+                  - arn:aws:s3:::nyc-taxi-platform/bronze/weather/*
 
   # =========================
   # LAMBDA — INGESTION TAXI
-  # Calcule automatiquement le mois a ingerer (mois precedent - 2 mois de delai NYC TLC)
-  # Peut aussi recevoir un mois specifique en parametre pour rejouer un mois
   # =========================
   IngestTaxiLambda:
     Type: AWS::Lambda::Function
@@ -53,8 +53,8 @@ Resources:
           TLC_DELAY_MONTHS: "2"
       Code:
         ZipFile: |
-          import json, io, os, urllib.request
-          from datetime import datetime, date
+          import json, io, os, urllib.request, urllib.error
+          from datetime import date
           from dateutil.relativedelta import relativedelta
           import boto3
           import pandas as pd
@@ -64,13 +64,11 @@ Resources:
           TLC_DELAY = int(os.environ.get("TLC_DELAY_MONTHS", "2"))
 
           def compute_target_month():
-              """Calcule le mois a ingerer : mois courant - delai de publication NYC TLC."""
               today = date.today()
               target = today - relativedelta(months=TLC_DELAY)
               return target.strftime("%Y-%m")
 
           def file_exists_on_s3(key):
-              """Verifie si le fichier est deja present sur S3 pour eviter un re-telechargement."""
               try:
                   s3.head_object(Bucket=S3_BUCKET, Key=key)
                   return True
@@ -78,13 +76,9 @@ Resources:
                   return False
 
           def lambda_handler(event, context):
-              # Priorite 1 : mois passe explicitement en parametre (pour rejouer un mois)
-              # Priorite 2 : calcul automatique du mois precedent selon le delai NYC TLC
               month = event.get("month") or compute_target_month()
-
               key = f"bronze/taxi/taxi_{month}.parquet"
 
-              # Idempotence : ne re-telecharge pas si le fichier existe deja
               if file_exists_on_s3(key):
                   return {
                       "statusCode": 200,
@@ -106,7 +100,7 @@ Resources:
                               "statusCode": 404,
                               "month": month,
                               "status": "not_available",
-                              "message": f"Fichier NYC TLC non encore publie pour {month} — pipeline annule proprement"
+                              "message": f"Fichier NYC TLC non encore publie pour {month}"
                           }
                       raise http_err
 
@@ -129,7 +123,100 @@ Resources:
                   }
 
               except Exception as e:
-                  raise RuntimeError(f"Echec ingestion {month} : {str(e)}")
+                  raise RuntimeError(f"Echec ingestion taxi {month} : {str(e)}")
+
+  # =========================
+  # LAMBDA — INGESTION WEATHER
+  # Recupere la meteo Open-Meteo pour le meme mois que le taxi
+  # =========================
+  IngestWeatherLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nyc-ingest-weather-month
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt IngestionLambdaRole.Arn
+      Timeout: 60
+      MemorySize: 256
+      Environment:
+        Variables:
+          S3_BUCKET: nyc-taxi-platform
+          TLC_DELAY_MONTHS: "2"
+      Code:
+        ZipFile: |
+          import json, os, urllib.request
+          from datetime import date
+          from dateutil.relativedelta import relativedelta
+          import boto3
+          import calendar
+
+          s3 = boto3.client("s3")
+          S3_BUCKET = os.environ["S3_BUCKET"]
+          TLC_DELAY = int(os.environ.get("TLC_DELAY_MONTHS", "2"))
+
+          def compute_target_month():
+              today = date.today()
+              target = today - relativedelta(months=TLC_DELAY)
+              return target.strftime("%Y-%m")
+
+          def file_exists_on_s3(key):
+              try:
+                  s3.head_object(Bucket=S3_BUCKET, Key=key)
+                  return True
+              except Exception:
+                  return False
+
+          def lambda_handler(event, context):
+              month = event.get("month") or compute_target_month()
+              key = f"bronze/weather/weather_{month}.json"
+
+              if file_exists_on_s3(key):
+                  return {
+                      "statusCode": 200,
+                      "month": month,
+                      "status": "already_exists",
+                      "s3_key": key,
+                      "message": f"Meteo deja presente sur S3, ingestion ignoree"
+                  }
+
+              try:
+                  year, m = month.split("-")
+                  last_day = calendar.monthrange(int(year), int(m))[1]
+                  start_date = f"{month}-01"
+                  end_date = f"{month}-{last_day:02d}"
+
+                  url = (
+                      f"https://archive-api.open-meteo.com/v1/archive"
+                      f"?latitude=40.7128"
+                      f"&longitude=-74.0060"
+                      f"&start_date={start_date}"
+                      f"&end_date={end_date}"
+                      f"&hourly=temperature_2m,precipitation,windspeed_10m,weathercode"
+                      f"&timezone=America/New_York"
+                  )
+
+                  req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      data = json.loads(response.read().decode("utf-8"))
+
+                  s3.put_object(
+                      Bucket=S3_BUCKET,
+                      Key=key,
+                      Body=json.dumps(data),
+                      ContentType="application/json"
+                  )
+
+                  hours = len(data.get("hourly", {}).get("time", []))
+                  return {
+                      "statusCode": 200,
+                      "month": month,
+                      "status": "ingested",
+                      "hours": hours,
+                      "s3_key": key
+                  }
+
+              except Exception as e:
+                  raise RuntimeError(f"Echec ingestion weather {month} : {str(e)}")
 
   # =========================
   # IAM ROLE — STEP FUNCTIONS
@@ -160,7 +247,9 @@ Resources:
               - Effect: Allow
                 Action:
                   - lambda:InvokeFunction
-                Resource: !GetAtt IngestTaxiLambda.Arn
+                Resource:
+                  - !GetAtt IngestTaxiLambda.Arn
+                  - !GetAtt IngestWeatherLambda.Arn
               - Effect: Allow
                 Action:
                   - logs:CreateLogDelivery
@@ -184,8 +273,8 @@ Resources:
 
   # =========================
   # STEP FUNCTIONS — PIPELINE BOUT EN BOUT
-  # 1. IngestTaxi  : Lambda calcule et ingere le bon mois automatiquement
-  # 2. BronzeToSilver -> SilverToGold -> GoldToRds : jobs Glue sequentiels
+  # Parallel : IngestTaxi + IngestWeather simultanement
+  # puis : BronzeToSilver -> SilverToGold -> GoldToRds
   # =========================
   PipelineStateMachine:
     Type: AWS::StepFunctions::StateMachine
@@ -200,14 +289,35 @@ Resources:
               LogGroupArn: !GetAtt PipelineLogGroup.Arn
       DefinitionString: !Sub |
         {
-          "Comment": "Pipeline NYC Taxi bout en bout : ingestion automatique -> bronze_to_silver -> silver_to_gold -> gold_to_rds",
-          "StartAt": "IngestTaxi",
+          "Comment": "Pipeline NYC Taxi bout en bout : ingestion taxi+weather en parallele -> bronze_to_silver -> silver_to_gold -> gold_to_rds",
+          "StartAt": "IngestAllData",
           "States": {
-            "IngestTaxi": {
-              "Type": "Task",
-              "Resource": "${IngestTaxiLambda.Arn}",
-              "Comment": "La Lambda calcule automatiquement le mois a ingerer selon le delai NYC TLC. Passer month dans l input pour forcer un mois specifique.",
-              "Next": "CheckIngestionStatus",
+            "IngestAllData": {
+              "Type": "Parallel",
+              "Comment": "Ingestion taxi et meteo en parallele pour le meme mois cible",
+              "Branches": [
+                {
+                  "StartAt": "IngestTaxi",
+                  "States": {
+                    "IngestTaxi": {
+                      "Type": "Task",
+                      "Resource": "${IngestTaxiLambda.Arn}",
+                      "End": true
+                    }
+                  }
+                },
+                {
+                  "StartAt": "IngestWeather",
+                  "States": {
+                    "IngestWeather": {
+                      "Type": "Task",
+                      "Resource": "${IngestWeatherLambda.Arn}",
+                      "End": true
+                    }
+                  }
+                }
+              ],
+              "Next": "CheckTaxiStatus",
               "Catch": [
                 {
                   "ErrorEquals": ["States.ALL"],
@@ -215,11 +325,12 @@ Resources:
                 }
               ]
             },
-            "CheckIngestionStatus": {
+            "CheckTaxiStatus": {
               "Type": "Choice",
+              "Comment": "Verifie si les donnees taxi sont disponibles avant de lancer Glue",
               "Choices": [
                 {
-                  "Variable": "$.status",
+                  "Variable": "$[0].status",
                   "StringEquals": "not_available",
                   "Next": "DataNotYetAvailable"
                 }
@@ -228,7 +339,7 @@ Resources:
             },
             "DataNotYetAvailable": {
               "Type": "Succeed",
-              "Comment": "Le fichier NYC TLC n est pas encore publie pour ce mois — pipeline termine proprement sans erreur"
+              "Comment": "Fichier NYC TLC pas encore publie — pipeline termine proprement sans erreur"
             },
             "BronzeToSilver": {
               "Type": "Task",
@@ -309,8 +420,8 @@ Resources:
   # =========================
   # EVENTBRIDGE — DECLENCHEMENT MENSUEL AUTOMATIQUE
   # Le 5 de chaque mois a 6h UTC
-  # Aucun Input necessaire : la Lambda calcule elle-meme le mois a ingerer
-  # DISABLED par defaut — activer en production
+  # Aucun Input : les Lambdas calculent elles-memes le mois cible
+  # DISABLED par defaut
   # =========================
   MonthlyScheduleRule:
     Type: AWS::Events::Rule
@@ -318,7 +429,7 @@ Resources:
       Name: nyc-taxi-monthly-schedule
       Description: >
         Declenche automatiquement le pipeline NYC Taxi le 5 de chaque mois.
-        La Lambda d ingestion calcule automatiquement le mois cible (mois courant - 2 mois).
+        Les Lambdas calculent automatiquement le mois cible (mois courant - 2 mois).
         Aucune intervention manuelle requise.
       ScheduleExpression: "cron(0 6 5 * ? *)"
       State: DISABLED
@@ -335,6 +446,9 @@ Outputs:
 
   IngestTaxiLambdaArn:
     Value: !GetAtt IngestTaxiLambda.Arn
+
+  IngestWeatherLambdaArn:
+    Value: !GetAtt IngestWeatherLambda.Arn
 
   MonthlyScheduleRuleName:
     Value: !Ref MonthlyScheduleRule
