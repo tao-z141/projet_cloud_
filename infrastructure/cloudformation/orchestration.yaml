@@ -98,7 +98,19 @@ Resources:
                   url = f"https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{month}.parquet"
                   req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
 
-                  with urllib.request.urlopen(req, timeout=300) as response:
+                  try:
+                      response = urllib.request.urlopen(req, timeout=30)
+                  except urllib.error.HTTPError as http_err:
+                      if http_err.code == 404:
+                          return {
+                              "statusCode": 404,
+                              "month": month,
+                              "status": "not_available",
+                              "message": f"Fichier NYC TLC non encore publie pour {month} — pipeline annule proprement"
+                          }
+                      raise http_err
+
+                  with response:
                       raw_bytes = response.read()
 
                   df = pd.read_parquet(io.BytesIO(raw_bytes))
@@ -195,13 +207,28 @@ Resources:
               "Type": "Task",
               "Resource": "${IngestTaxiLambda.Arn}",
               "Comment": "La Lambda calcule automatiquement le mois a ingerer selon le delai NYC TLC. Passer month dans l input pour forcer un mois specifique.",
-              "Next": "BronzeToSilver",
+              "Next": "CheckIngestionStatus",
               "Catch": [
                 {
                   "ErrorEquals": ["States.ALL"],
                   "Next": "PipelineFailed"
                 }
               ]
+            },
+            "CheckIngestionStatus": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.status",
+                  "StringEquals": "not_available",
+                  "Next": "DataNotYetAvailable"
+                }
+              ],
+              "Default": "BronzeToSilver"
+            },
+            "DataNotYetAvailable": {
+              "Type": "Succeed",
+              "Comment": "Le fichier NYC TLC n est pas encore publie pour ce mois — pipeline termine proprement sans erreur"
             },
             "BronzeToSilver": {
               "Type": "Task",
