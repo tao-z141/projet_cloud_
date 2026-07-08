@@ -1,37 +1,34 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: NYC Taxi Data Lake Storage
-
 Resources:
-
   DataLakeBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: nyc-taxi-platform
-
       VersioningConfiguration:
         Status: Enabled
-
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
-
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
-
       LifecycleConfiguration:
         Rules:
-          - Id: BronzeRetention
+          - Id: BronzeArchiving
             Status: Enabled
-            ExpirationInDays: 30
-
+            Prefix: bronze/
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+              - StorageClass: GLACIER
+                TransitionInDays: 90
       NotificationConfiguration:
         EventBridgeConfiguration:
           EventBridgeEnabled: true
-
 Outputs:
   BucketName:
     Value: !Ref DataLakeBucket
